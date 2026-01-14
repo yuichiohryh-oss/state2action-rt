@@ -141,6 +141,14 @@ def load_state_pair_tensor(data_dir: str, state_path: str, delta_frames: int) ->
     return torch.cat([current, past], dim=0)
 
 
+def load_state_pair_with_diff_tensor(data_dir: str, state_path: str, delta_frames: int) -> torch.Tensor:
+    current = load_state_image_tensor(data_dir, state_path)
+    past_path = resolve_past_state_path(data_dir, state_path, delta_frames)
+    past = load_state_image_tensor(data_dir, past_path)
+    diff = current - past
+    return torch.cat([current, past, diff], dim=0)
+
+
 class StateActionDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -148,15 +156,19 @@ class StateActionDataset(torch.utils.data.Dataset):
         records: List[dict],
         vocab: ActionVocab,
         two_frame: bool = False,
+        diff_channels: bool = False,
         delta_frames: int = 1,
         delta_sec: float | None = None,
     ) -> None:
         if delta_frames < 0:
             raise ValueError("delta_frames must be non-negative")
+        if diff_channels and not two_frame:
+            raise ValueError("diff_channels requires two_frame=True")
         self.data_dir = data_dir
         self.records = records
         self.vocab = vocab
         self.two_frame = two_frame
+        self.diff_channels = diff_channels
         self.delta_frames = delta_frames
         self.delta_sec = delta_sec
 
@@ -168,7 +180,10 @@ class StateActionDataset(torch.utils.data.Dataset):
         state_path = record["state_path"]
         if self.two_frame:
             delta_frames = resolve_delta_frames(record, self.delta_frames, self.delta_sec)
-            image = load_state_pair_tensor(self.data_dir, state_path, delta_frames)
+            if self.diff_channels:
+                image = load_state_pair_with_diff_tensor(self.data_dir, state_path, delta_frames)
+            else:
+                image = load_state_pair_tensor(self.data_dir, state_path, delta_frames)
         else:
             image = load_state_image_tensor(self.data_dir, state_path)
         action_id = str(record["action_id"])

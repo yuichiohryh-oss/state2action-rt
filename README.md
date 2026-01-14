@@ -66,10 +66,16 @@ The tool writes `dataset_with_noop.jsonl` and keeps the original `dataset.jsonl`
 This repository includes a minimal imitation learning model that predicts the next action as two heads:
 state image (256x256) -> CNN embedding -> action_id (card) + grid_id.
 
+Input modes:
+- single: [3,256,256]
+- two-frame: [6,256,256]
+- two+diff: [9,256,256] where diff = t - (t - delta)
+
 Two-frame mode concatenates the current frame (t) and a past frame (t - delta) along channels, producing a
-[6,256,256] tensor (current 3 channels, then past 3 channels). The past frame is loaded from the previous
-filename in the same directory (index - delta_frames); if it does not exist, the current frame is reused.
-When `--delta-sec` is provided and `meta.fps_effective` exists, the offset is converted to frames.
+[6,256,256] tensor (current 3 channels, then past 3 channels). Two+diff mode appends a diff tensor
+[9,256,256] where diff = current - past. The past frame is loaded from the previous filename in the same
+directory (index - delta_frames); if it does not exist, the current frame is reused. When `--delta-sec`
+is provided and `meta.fps_effective` exists, the offset is converted to frames.
 
 Train the policy:
 ```bash
@@ -100,6 +106,24 @@ python tools/train_policy.py \
   --gw 6 --gh 9 \
   --device auto
 ```
+
+Train with two+diff input:
+```bash
+python tools/train_policy.py \
+  --data-dir /path/to/out \
+  --out-dir /path/to/policy_out \
+  --epochs 5 \
+  --batch-size 32 \
+  --lr 1e-3 \
+  --seed 7 \
+  --val-ratio 0.1 \
+  --two-frame \
+  --diff-channels \
+  --delta-frames 1 \
+  --gw 6 --gh 9 \
+  --device auto
+```
+`--diff-channels` requires `--two-frame`.
 
 Train with a no-op augmented dataset:
 ```bash
@@ -141,6 +165,17 @@ python tools/predict_policy.py \
   --data-dir /path/to/out \
   --idx 0 \
   --topk 5
+```
+
+Override to use two+diff input:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out \
+  --idx 0 \
+  --topk 5 \
+  --two-frame \
+  --diff-channels
 ```
 
 Optional overlay for the top-1 grid cell:
