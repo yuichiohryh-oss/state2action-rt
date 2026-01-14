@@ -24,6 +24,36 @@ Example:
 {"t": 15.42, "x": 300.0, "y": 500.0, "action_id": "action_generic"}
 ```
 
+Create events.jsonl with the interactive labeler:
+```bash
+python tools/label_events.py \
+  --video /path/to/video.mp4 \
+  --out /path/to/events.jsonl
+```
+
+ROI-limited labeling (example values):
+```bash
+python tools/label_events.py \
+  --video /path/to/video.mp4 \
+  --out /path/to/events.jsonl \
+  --roi-y1 110 \
+  --roi-y2-mode fixed \
+  --roi-y2-fixed 570 \
+  --roi-x1 0 \
+  --roi-x2 1280
+```
+
+Labeler keys:
+- Space: play/pause
+- A / D: -1s / +1s
+- J / L: -0.1s / +0.1s
+- Q / ESC: quit
+- Click: select point
+- 0-9: save action (action_0 .. action_9)
+- N: save "__NOOP__" without a click
+- U: undo last event
+- H: print help to console
+
 ## Usage
 Install dependencies:
 ```bash
