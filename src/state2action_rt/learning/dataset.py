@@ -39,8 +39,7 @@ class ActionVocab:
             json.dump(payload, f, ensure_ascii=True, indent=2)
 
 
-def load_records(data_dir: str) -> List[dict]:
-    dataset_path = os.path.join(data_dir, "dataset.jsonl")
+def load_records_from_path(dataset_path: str) -> List[dict]:
     records: List[dict] = []
     with open(dataset_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -48,6 +47,11 @@ def load_records(data_dir: str) -> List[dict]:
                 continue
             records.append(json.loads(line))
     return records
+
+
+def load_records(data_dir: str) -> List[dict]:
+    dataset_path = os.path.join(data_dir, "dataset.jsonl")
+    return load_records_from_path(dataset_path)
 
 
 def infer_grid_shape(records: Iterable[dict]) -> Tuple[int, int] | None:
