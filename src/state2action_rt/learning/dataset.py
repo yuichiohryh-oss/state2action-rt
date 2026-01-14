@@ -192,8 +192,9 @@ class StateActionDataset(torch.utils.data.Dataset):
         return image, card_label, grid_label
 
 
-def load_record_by_idx(data_dir: str, idx: int) -> dict | None:
-    dataset_path = os.path.join(data_dir, "dataset.jsonl")
+def load_record_by_idx(data_dir: str, idx: int, dataset_path: str | None = None) -> dict | None:
+    if dataset_path is None:
+        dataset_path = os.path.join(data_dir, "dataset.jsonl")
     with open(dataset_path, "r", encoding="utf-8") as f:
         for line in f:
             if not line.strip():
