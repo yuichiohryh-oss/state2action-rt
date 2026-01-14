@@ -12,3 +12,6 @@ build/
 .DS_Store
 out/
 output/
+videos/
+data/
+out_check.png
