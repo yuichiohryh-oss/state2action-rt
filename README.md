@@ -158,13 +158,14 @@ python tools/train_policy.py \
 ```
 Confirm `torch.cuda.is_available()` returns `True` before training.
 
-Predict top-k candidates:
+Predict top-k candidates (inference can also use GPU via `--device`):
 ```bash
 python tools/predict_policy.py \
   --checkpoint /path/to/policy_out/checkpoints/best.pt \
   --data-dir /path/to/out \
   --idx 0 \
-  --topk 5
+  --topk 5 \
+  --device auto
 ```
 
 Predict with a specific dataset jsonl:
@@ -174,7 +175,8 @@ python tools/predict_policy.py \
   --data-dir /path/to/out/noop_aug \
   --dataset-path /path/to/out/noop_aug/dataset_with_noop.jsonl \
   --idx 0 \
-  --topk 5
+  --topk 5 \
+  --device auto
 ```
 
 Override to use two+diff input:
@@ -185,7 +187,8 @@ python tools/predict_policy.py \
   --idx 0 \
   --topk 5 \
   --two-frame \
-  --diff-channels
+  --diff-channels \
+  --device auto
 ```
 
 Optional overlay for the top-1 grid cell:
@@ -195,7 +198,8 @@ python tools/predict_policy.py \
   --data-dir /path/to/out \
   --idx 0 \
   --topk 5 \
-  --render-overlay --overlay-out out.png
+  --render-overlay --overlay-out out.png \
+  --device auto
 ```
 
 Debug options for prediction ranking:
@@ -207,7 +211,19 @@ python tools/predict_policy.py \
   --idx 0 \
   --topk 5 \
   --exclude-noop \
-  --score-mode logadd
+  --score-mode logadd \
+  --device auto
+
+CUDA prediction example:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out \
+  --idx 0 \
+  --topk 5 \
+  --device cuda
+```
+Confirm `torch.cuda.is_available()` returns `True` before prediction.
 ```
 
 ## Output structure

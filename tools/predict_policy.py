@@ -24,6 +24,16 @@ def warn(msg: str) -> None:
     print(f"[warn] {msg}", file=sys.stderr)
 
 
+def select_device(device_arg: str) -> torch.device:
+    if device_arg == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    return torch.device(device_arg)
+
+
 def load_checkpoint(path: str, device: torch.device) -> dict:
     return torch.load(path, map_location=device)
 
@@ -101,7 +111,7 @@ def render_overlay(
         raise RuntimeError("failed to write overlay image")
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Predict top-k action candidates for a dataset sample.")
     parser.add_argument("--checkpoint", required=True, help="Path to best.pt")
     parser.add_argument("--data-dir", required=True, help="Dataset directory containing dataset.jsonl")
@@ -131,9 +141,25 @@ def main() -> int:
     parser.add_argument("--delta-frames", type=int, default=None, help="Frame offset for past frame")
     parser.add_argument("--delta-sec", type=float, default=None, help="Optional seconds offset for past frame")
     parser.add_argument("--in-channels", type=int, default=None, help="Override model input channels")
+    parser.add_argument(
+        "--device",
+        default="auto",
+        choices=["auto", "cpu", "cuda", "mps"],
+        help="Inference device",
+    )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
-    device = torch.device("cpu")
+    device = select_device(args.device)
+    if device.type == "cuda":
+        device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cuda"
+        print(f"using device: {device} ({device_name})")
+    else:
+        print(f"using device: {device}")
     checkpoint = load_checkpoint(args.checkpoint, device)
     checkpoint_vocab = checkpoint.get("id_to_action")
     if checkpoint_vocab:
@@ -191,6 +217,7 @@ def main() -> int:
 
     model = PolicyNet(num_actions=len(vocab.id_to_action), num_grids=num_grids, in_channels=in_channels)
     model.load_state_dict(checkpoint["model_state"])
+    model.to(device)
     model.eval()
 
     if two_frame:
@@ -203,6 +230,7 @@ def main() -> int:
             image = load_state_pair_tensor(args.data_dir, record["state_path"], delta_frames).unsqueeze(0)
     else:
         image = load_state_image_tensor(args.data_dir, record["state_path"]).unsqueeze(0)
+    image = image.to(device)
     with torch.no_grad():
         card_logits, grid_logits = model(image)
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
