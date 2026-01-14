@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Tuple
+import warnings
 
 import cv2
 import numpy as np
@@ -51,6 +52,14 @@ def detect_roi(frame_bgr: np.ndarray, config: RoiConfig) -> Tuple[int, int, int,
         y2 = config.y2_fixed if config.y2_fixed is not None else int(h * 0.85)
     else:
         y2 = detect_bottom_ui_y(frame_bgr)
+
+        roi_h = y2 - y1
+        if roi_h < int(h * 0.4) or roi_h > int(h * 0.95):
+            if config.y2_fixed is not None:
+                y2 = config.y2_fixed
+            else:
+                y2 = int(h * 0.85)
+            warnings.warn("auto ROI detection out of range; using fallback y2", stacklevel=2)
 
     y2 = min(h, max(y1 + 1, y2))
     return (x1, y1, x2, y2)

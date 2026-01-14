@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Callable, Iterable, Optional
 
 import cv2
 import numpy as np
@@ -15,10 +16,13 @@ class FrameSource:
 
 
 class VideoFrameSource:
-    def __init__(self, path: str, fallback_fps: float = 30.0):
+    def __init__(self, path: str, fallback_fps: float | None = None):
         self.cap = cv2.VideoCapture(path)
         fps = float(self.cap.get(cv2.CAP_PROP_FPS))
         if fps <= 1e-3:
+            if fallback_fps is None:
+                self.cap.release()
+                raise ValueError("video input requires --fps when fps is unavailable")
             fps = fallback_fps
         self.fps = fps
 
@@ -44,3 +48,10 @@ class ImageDirFrameSource:
         if index < 0 or index >= len(self.file_paths):
             return None
         return cv2.imread(self.file_paths[index], cv2.IMREAD_COLOR)
+
+
+def list_image_files(dir_path: str, exts: Iterable[str]) -> list[str]:
+    root = Path(dir_path)
+    files = [p for p in root.iterdir() if p.is_file() and p.suffix.lower() in exts]
+    files.sort(key=lambda p: p.name)
+    return [str(p) for p in files]

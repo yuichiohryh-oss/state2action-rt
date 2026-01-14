@@ -60,9 +60,13 @@ Each line in `dataset.jsonl` contains:
 - `t_state`: float
 - `action_id`: string
 - `grid_id`: int (0..53 for 6x9)
+- `x`: float (original screen coordinate)
+- `y`: float
+- `x_rel`: float (normalized within ROI, 0..1)
+- `y_rel`: float
 - `roi`: [x1, y1, x2, y2]
 - `state_path`: relative path to 256x256 state image
-- `meta`: object (example: gw/gh/lead_sec)
+- `meta`: object (example: gw/gh/lead_sec/fps_effective)
 
 ## Parameters
 - `lead-sec`: state timestamp is `t_action - lead_sec`
@@ -71,7 +75,10 @@ Each line in `dataset.jsonl` contains:
 - `roi-y2-mode`: `auto` detects the bottom UI bar via row intensity change; `fixed` uses `roi-y2-fixed`
 - `roi-y2-fixed`: explicit y2 when `roi-y2-mode=fixed`
 - `roi-x1`, `roi-x2`: optional horizontal bounds
-- `fps`: fallback FPS (required when `--video` is an image directory)
+- `fps`: override/fallback FPS (required when `--video` is an image directory)
+
+## Notes
+When `--video` points to an image directory, files are treated as a time series sorted by filename.
 
 ## Policy
 Do not include any game-specific proper nouns in code, comments, or documentation.

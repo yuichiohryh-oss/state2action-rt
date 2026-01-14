@@ -29,9 +29,14 @@ def test_build_dataset_single_record(tmp_path):
 
     assert len(records) == 1
     assert records[0]["grid_id"] == 3
+    assert records[0]["x_rel"] == 0.75
+    assert records[0]["y_rel"] == 0.75
 
     dataset_path = out_dir / "dataset.jsonl"
     with open(dataset_path, "r", encoding="utf-8") as f:
         data = [json.loads(line) for line in f if line.strip()]
     assert len(data) == 1
+    assert data[0]["x"] == 75.0
+    assert data[0]["y"] == 75.0
+    assert data[0]["meta"]["fps_effective"] == 10.0
     assert (out_dir / data[0]["state_path"]).exists()

@@ -61,7 +61,15 @@ def build_dataset(
             continue
 
         roi = detect_roi(frame, roi_config)
-        grid_id = xy_to_grid_id(event["x"], event["y"], roi, grid_config.gw, grid_config.gh)
+        event_x = float(event["x"])
+        event_y = float(event["y"])
+        grid_id = xy_to_grid_id(event_x, event_y, roi, grid_config.gw, grid_config.gh)
+        roi_w = max(1.0, float(roi[2] - roi[0]))
+        roi_h = max(1.0, float(roi[3] - roi[1]))
+        x_rel = (event_x - roi[0]) / roi_w
+        y_rel = (event_y - roi[1]) / roi_h
+        x_rel = min(max(x_rel, 0.0), 1.0)
+        y_rel = min(max(y_rel, 0.0), 1.0)
         state_img = make_state_image(frame, roi)
 
         state_rel = os.path.join("state_frames", f"{idx:06d}.png")
@@ -77,12 +85,17 @@ def build_dataset(
             "t_state": t_state,
             "action_id": event["action_id"],
             "grid_id": grid_id,
+            "x": event_x,
+            "y": event_y,
+            "x_rel": x_rel,
+            "y_rel": y_rel,
             "roi": [int(v) for v in roi],
             "state_path": state_rel.replace("\\", "/"),
             "meta": {
                 "gw": grid_config.gw,
                 "gh": grid_config.gh,
                 "lead_sec": lead_sec,
+                "fps_effective": float(frame_source.fps),
             },
         }
         records.append(record)

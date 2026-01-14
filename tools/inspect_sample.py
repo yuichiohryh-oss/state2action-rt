@@ -60,9 +60,19 @@ def main() -> int:
     sy2 = int(round((cell[3] - roi[1]) * scale_y))
 
     cv2.rectangle(state_img, (sx1, sy1), (sx2, sy2), (0, 255, 0), 2)
-    cx = int(round((sx1 + sx2) / 2))
-    cy = int(round((sy1 + sy2) / 2))
-    cv2.circle(state_img, (cx, cy), 4, (0, 0, 255), -1)
+
+    x_rel = record.get("x_rel")
+    y_rel = record.get("y_rel")
+    if x_rel is None or y_rel is None:
+        x_val = float(record.get("x", 0.0))
+        y_val = float(record.get("y", 0.0))
+        x_rel = (x_val - roi[0]) / roi_w
+        y_rel = (y_val - roi[1]) / roi_h
+    x_rel = min(max(float(x_rel), 0.0), 1.0)
+    y_rel = min(max(float(y_rel), 0.0), 1.0)
+    px = int(round(x_rel * (state_img.shape[1] - 1)))
+    py = int(round(y_rel * (state_img.shape[0] - 1)))
+    cv2.circle(state_img, (px, py), 4, (0, 0, 255), -1)
 
     out_path = args.out
     if out_path is None:
