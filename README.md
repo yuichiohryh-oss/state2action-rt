@@ -46,6 +46,22 @@ Inspect a sample with a debug overlay:
 python tools/inspect_sample.py --out-dir /path/to/out --idx 0
 ```
 
+## No-op augmentation
+To reduce unnecessary actions, you can augment the dataset with explicit "__NOOP__" samples. This adds records where the model should output "do nothing" for a given state.
+
+Generate augmented data:
+```bash
+python tools/augment_noop.py \
+  --data-dir /path/to/out \
+  --out-dir /path/to/out/noop_aug \
+  --noop-per-action 1 \
+  --min-gap-sec 0.6 \
+  --span-sec 1.5 \
+  --seed 7
+```
+
+The tool writes `dataset_with_noop.jsonl` and keeps the original `dataset.jsonl` untouched.
+
 ## Learning model
 This repository includes a minimal imitation learning model that predicts the next action as two heads:
 state image (256x256) -> CNN embedding -> action_id (card) + grid_id.
@@ -63,6 +79,39 @@ python tools/train_policy.py \
   --gw 6 --gh 9 \
   --device auto
 ```
+
+Train with a no-op augmented dataset:
+```bash
+python tools/train_policy.py \
+  --data-dir /path/to/out/noop_aug \
+  --dataset-path /path/to/out/noop_aug/dataset_with_noop.jsonl \
+  --out-dir /path/to/policy_out \
+  --epochs 5 \
+  --batch-size 32 \
+  --lr 1e-3 \
+  --seed 7 \
+  --val-ratio 0.1 \
+  --gw 6 --gh 9 \
+  --device auto
+```
+
+When `action_id="__NOOP__"` is present, the grid loss is masked for those samples (`grid_id=-1`).
+
+CUDA training example:
+```bash
+python tools/train_policy.py \
+  --data-dir /path/to/out/noop_aug \
+  --dataset-path /path/to/out/noop_aug/dataset_with_noop.jsonl \
+  --out-dir /path/to/policy_out \
+  --epochs 1 \
+  --batch-size 32 \
+  --lr 1e-3 \
+  --seed 7 \
+  --val-ratio 0.1 \
+  --gw 6 --gh 9 \
+  --device cuda
+```
+Confirm `torch.cuda.is_available()` returns `True` before training.
 
 Predict top-k candidates:
 ```bash

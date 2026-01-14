@@ -72,7 +72,16 @@ def main() -> int:
 
     device = torch.device("cpu")
     checkpoint = load_checkpoint(args.checkpoint, device)
-    vocab = ActionVocab.load(os.path.join(args.data_dir, "vocab.json"))
+    checkpoint_vocab = checkpoint.get("id_to_action")
+    if checkpoint_vocab:
+        vocab = ActionVocab([str(v) for v in checkpoint_vocab])
+        vocab_path = os.path.join(args.data_dir, "vocab.json")
+        if os.path.exists(vocab_path):
+            disk_vocab = ActionVocab.load(vocab_path)
+            if disk_vocab.id_to_action != vocab.id_to_action:
+                warn("vocab.json does not match checkpoint vocab")
+    else:
+        vocab = ActionVocab.load(os.path.join(args.data_dir, "vocab.json"))
     record = load_record_by_idx(args.data_dir, args.idx)
     if record is None:
         warn("record not found")
@@ -102,6 +111,10 @@ def main() -> int:
 
     candidates = []
     for c_id, c_prob in zip(card_ids, card_vals):
+        action_id = vocab.id_to_action[c_id]
+        if action_id == "__NOOP__":
+            candidates.append((c_prob, c_id, c_prob, -1, 0.0))
+            continue
         for g_id, g_prob in zip(grid_ids, grid_vals):
             candidates.append((c_prob * g_prob, c_id, c_prob, g_id, g_prob))
     candidates.sort(key=lambda x: x[0], reverse=True)
@@ -109,18 +122,25 @@ def main() -> int:
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
-        gx = grid_id % gw
-        gy = grid_id // gw
+        if grid_id >= 0:
+            gx = grid_id % gw
+            gy = grid_id // gw
+            grid_info = f"grid_id={grid_id} (gx={gx},gy={gy}) grid_prob={grid_prob:.4f}"
+        else:
+            grid_info = "grid_id=-1 grid_prob=0.0000"
         print(
             f"{rank:02d} action_id={action_id} card_prob={card_prob:.4f} "
-            f"grid_id={grid_id} (gx={gx},gy={gy}) grid_prob={grid_prob:.4f} "
+            f"{grid_info} "
             f"combined_score={score:.6f}"
         )
 
     if args.render_overlay and top_candidates:
         top_grid = top_candidates[0][3]
-        render_overlay(args.data_dir, record, top_grid, gw, gh, args.overlay_out)
-        print(f"overlay_saved={args.overlay_out}")
+        if top_grid >= 0:
+            render_overlay(args.data_dir, record, top_grid, gw, gh, args.overlay_out)
+            print(f"overlay_saved={args.overlay_out}")
+        else:
+            print("overlay_skipped=NOOP")
 
     return 0
 
