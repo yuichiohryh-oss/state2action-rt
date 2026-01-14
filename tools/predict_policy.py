@@ -12,6 +12,7 @@ from state2action_rt.learning.dataset import (
     infer_grid_shape,
     load_record_by_idx,
     load_state_pair_tensor,
+    load_state_pair_with_diff_tensor,
     load_state_image_tensor,
     resolve_delta_frames,
 )
@@ -70,6 +71,12 @@ def main() -> int:
     parser.add_argument("--render-overlay", action="store_true", help="Write top-1 grid overlay to out.png")
     parser.add_argument("--overlay-out", default="out.png", help="Overlay output path")
     parser.add_argument("--two-frame", action="store_true", default=None, help="Force two-frame input")
+    parser.add_argument(
+        "--diff-channels",
+        action="store_true",
+        default=None,
+        help="Force diff channels (current - past); requires --two-frame",
+    )
     parser.add_argument("--delta-frames", type=int, default=None, help="Frame offset for past frame")
     parser.add_argument("--delta-sec", type=float, default=None, help="Optional seconds offset for past frame")
     parser.add_argument("--in-channels", type=int, default=None, help="Override model input channels")
@@ -100,18 +107,36 @@ def main() -> int:
         return 1
 
     ckpt_two_frame = bool(checkpoint.get("two_frame", False))
+    ckpt_diff_channels = bool(checkpoint.get("diff_channels", False))
     ckpt_delta_frames = int(checkpoint.get("delta_frames", 1))
     ckpt_in_channels = checkpoint.get("in_channels")
     if ckpt_in_channels is None:
-        ckpt_in_channels = 6 if ckpt_two_frame else 3
+        if ckpt_diff_channels:
+            ckpt_in_channels = 9
+        elif ckpt_two_frame:
+            ckpt_in_channels = 6
+        else:
+            ckpt_in_channels = 3
     else:
         ckpt_in_channels = int(ckpt_in_channels)
 
     two_frame = ckpt_two_frame if args.two_frame is None else args.two_frame
+    diff_channels = ckpt_diff_channels if args.diff_channels is None else args.diff_channels
     delta_frames = ckpt_delta_frames if args.delta_frames is None else args.delta_frames
-    in_channels = ckpt_in_channels if args.in_channels is None else args.in_channels
-    if not two_frame and args.in_channels is None:
-        in_channels = 3
+    if diff_channels and not two_frame:
+        raise ValueError("--diff-channels requires --two-frame")
+    if args.in_channels is None:
+        if args.two_frame is None and args.diff_channels is None:
+            in_channels = ckpt_in_channels
+        else:
+            if diff_channels:
+                in_channels = 9
+            elif two_frame:
+                in_channels = 6
+            else:
+                in_channels = 3
+    else:
+        in_channels = args.in_channels
 
     model = PolicyNet(num_actions=len(vocab.id_to_action), num_grids=num_grids, in_channels=in_channels)
     model.load_state_dict(checkpoint["model_state"])
@@ -119,7 +144,12 @@ def main() -> int:
 
     if two_frame:
         delta_frames = resolve_delta_frames(record, delta_frames, args.delta_sec)
-        image = load_state_pair_tensor(args.data_dir, record["state_path"], delta_frames).unsqueeze(0)
+        if diff_channels:
+            image = load_state_pair_with_diff_tensor(
+                args.data_dir, record["state_path"], delta_frames
+            ).unsqueeze(0)
+        else:
+            image = load_state_pair_tensor(args.data_dir, record["state_path"], delta_frames).unsqueeze(0)
     else:
         image = load_state_image_tensor(args.data_dir, record["state_path"]).unsqueeze(0)
     with torch.no_grad():

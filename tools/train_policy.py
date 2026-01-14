@@ -158,6 +158,11 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--two-frame", action="store_true", help="Concatenate current/past frames as input")
+    parser.add_argument(
+        "--diff-channels",
+        action="store_true",
+        help="Append diff channels (current - past); requires --two-frame",
+    )
     parser.add_argument("--delta-frames", type=int, default=1, help="Frame offset for past frame")
     parser.add_argument("--delta-sec", type=float, default=None, help="Optional seconds offset for past frame")
     parser.add_argument("--gw", type=int, required=True, help="Grid width")
@@ -171,6 +176,9 @@ def main() -> int:
     args = parser.parse_args()
 
     set_seed(args.seed)
+
+    if args.diff_channels and not args.two_frame:
+        raise ValueError("--diff-channels requires --two-frame")
 
     dataset_path = args.dataset_path or os.path.join(args.data_dir, "dataset.jsonl")
     records = load_records_from_path(dataset_path)
@@ -192,6 +200,7 @@ def main() -> int:
         train_records,
         vocab,
         two_frame=args.two_frame,
+        diff_channels=args.diff_channels,
         delta_frames=args.delta_frames,
         delta_sec=args.delta_sec,
     )
@@ -200,6 +209,7 @@ def main() -> int:
         val_records,
         vocab,
         two_frame=args.two_frame,
+        diff_channels=args.diff_channels,
         delta_frames=args.delta_frames,
         delta_sec=args.delta_sec,
     )
@@ -213,7 +223,12 @@ def main() -> int:
         print(f"using device: {device} ({device_name})")
     else:
         print(f"using device: {device}")
-    in_channels = 6 if args.two_frame else 3
+    if args.diff_channels:
+        in_channels = 9
+    elif args.two_frame:
+        in_channels = 6
+    else:
+        in_channels = 3
     model = PolicyNet(num_actions=num_actions, num_grids=num_grids, in_channels=in_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
@@ -273,6 +288,7 @@ def main() -> int:
                     "embedding_dim": model.embedding_dim,
                     "id_to_action": vocab.id_to_action,
                     "two_frame": args.two_frame,
+                    "diff_channels": args.diff_channels,
                     "delta_frames": args.delta_frames,
                     "in_channels": in_channels,
                 },
