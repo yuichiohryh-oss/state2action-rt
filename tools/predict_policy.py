@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import sys
 from typing import List, Tuple
@@ -30,6 +31,44 @@ def load_checkpoint(path: str, device: torch.device) -> dict:
 def topk_probs(probs: torch.Tensor, k: int) -> Tuple[List[int], List[float]]:
     values, indices = torch.topk(probs, k)
     return indices.tolist(), values.tolist()
+
+
+def combine_score(card_prob: float, grid_prob: float, mode: str) -> float:
+    if mode == "mul":
+        return card_prob * grid_prob
+    if mode == "add":
+        return card_prob + grid_prob
+    if mode == "logadd":
+        eps = 1e-8
+        return math.log(card_prob + eps) + math.log(grid_prob + eps)
+    raise ValueError(f"unknown score mode: {mode}")
+
+
+def build_candidates(
+    card_probs: torch.Tensor,
+    grid_probs: torch.Tensor,
+    vocab: ActionVocab,
+    topk: int,
+    score_mode: str,
+    exclude_noop: bool,
+) -> List[Tuple[float, int, float, int, float]]:
+    k_card = min(topk, card_probs.numel())
+    k_grid = min(topk, grid_probs.numel())
+    card_ids, card_vals = topk_probs(card_probs, k_card)
+    grid_ids, grid_vals = topk_probs(grid_probs, k_grid)
+
+    candidates = []
+    for c_id, c_prob in zip(card_ids, card_vals):
+        action_id = vocab.id_to_action[c_id]
+        if action_id == "__NOOP__":
+            if exclude_noop:
+                continue
+            candidates.append((c_prob, c_id, c_prob, -1, 0.0))
+            continue
+        for g_id, g_prob in zip(grid_ids, grid_vals):
+            candidates.append((combine_score(c_prob, g_prob, score_mode), c_id, c_prob, g_id, g_prob))
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[:topk]
 
 
 def render_overlay(
@@ -70,6 +109,18 @@ def main() -> int:
     parser.add_argument("--topk", type=int, default=5)
     parser.add_argument("--render-overlay", action="store_true", help="Write top-1 grid overlay to out.png")
     parser.add_argument("--overlay-out", default="out.png", help="Overlay output path")
+    parser.add_argument("--exclude-noop", action="store_true", help="Exclude __NOOP__ from ranking")
+    parser.add_argument(
+        "--score-mode",
+        choices=["mul", "add", "logadd"],
+        default="mul",
+        help="Combined score mode (default: mul)",
+    )
+    parser.add_argument(
+        "--dataset-path",
+        default=None,
+        help="Optional dataset jsonl path (default: data-dir/dataset.jsonl)",
+    )
     parser.add_argument("--two-frame", action="store_true", default=None, help="Force two-frame input")
     parser.add_argument(
         "--diff-channels",
@@ -94,7 +145,7 @@ def main() -> int:
                 warn("vocab.json does not match checkpoint vocab")
     else:
         vocab = ActionVocab.load(os.path.join(args.data_dir, "vocab.json"))
-    record = load_record_by_idx(args.data_dir, args.idx)
+    record = load_record_by_idx(args.data_dir, args.idx, dataset_path=args.dataset_path)
     if record is None:
         warn("record not found")
         return 1
@@ -157,21 +208,14 @@ def main() -> int:
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
 
-    k_card = min(args.topk, card_probs.numel())
-    k_grid = min(args.topk, grid_probs.numel())
-    card_ids, card_vals = topk_probs(card_probs, k_card)
-    grid_ids, grid_vals = topk_probs(grid_probs, k_grid)
-
-    candidates = []
-    for c_id, c_prob in zip(card_ids, card_vals):
-        action_id = vocab.id_to_action[c_id]
-        if action_id == "__NOOP__":
-            candidates.append((c_prob, c_id, c_prob, -1, 0.0))
-            continue
-        for g_id, g_prob in zip(grid_ids, grid_vals):
-            candidates.append((c_prob * g_prob, c_id, c_prob, g_id, g_prob))
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    top_candidates = candidates[: args.topk]
+    top_candidates = build_candidates(
+        card_probs,
+        grid_probs,
+        vocab,
+        args.topk,
+        args.score_mode,
+        args.exclude_noop,
+    )
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
@@ -187,12 +231,15 @@ def main() -> int:
             f"combined_score={score:.6f}"
         )
 
-    if args.render_overlay and top_candidates:
-        top_grid = top_candidates[0][3]
-        if top_grid >= 0:
-            render_overlay(args.data_dir, record, top_grid, gw, gh, args.overlay_out)
-            print(f"overlay_saved={args.overlay_out}")
-        else:
+    if args.render_overlay:
+        if top_candidates:
+            top_grid = top_candidates[0][3]
+            if top_grid >= 0:
+                render_overlay(args.data_dir, record, top_grid, gw, gh, args.overlay_out)
+                print(f"overlay_saved={args.overlay_out}")
+            else:
+                print("overlay_skipped=NOOP")
+        elif args.exclude_noop:
             print("overlay_skipped=NOOP")
 
     return 0

@@ -275,25 +275,26 @@ def main() -> int:
             }
         )
 
+        ckpt_payload = {
+            "model_state": model.state_dict(),
+            "num_actions": num_actions,
+            "num_grids": num_grids,
+            "gw": args.gw,
+            "gh": args.gh,
+            "embedding_dim": model.embedding_dim,
+            "id_to_action": vocab.id_to_action,
+            "two_frame": args.two_frame,
+            "diff_channels": args.diff_channels,
+            "delta_frames": args.delta_frames,
+            "in_channels": in_channels,
+        }
         if val_metrics["loss"] < best_val:
             best_val = val_metrics["loss"]
             ckpt_path = os.path.join(ckpt_dir, "best.pt")
-            torch.save(
-                {
-                    "model_state": model.state_dict(),
-                    "num_actions": num_actions,
-                    "num_grids": num_grids,
-                    "gw": args.gw,
-                    "gh": args.gh,
-                    "embedding_dim": model.embedding_dim,
-                    "id_to_action": vocab.id_to_action,
-                    "two_frame": args.two_frame,
-                    "diff_channels": args.diff_channels,
-                    "delta_frames": args.delta_frames,
-                    "in_channels": in_channels,
-                },
-                ckpt_path,
-            )
+            torch.save(ckpt_payload, ckpt_path)
+
+        last_path = os.path.join(ckpt_dir, "last.pt")
+        torch.save(ckpt_payload, last_path)
 
     metrics_path = os.path.join(args.out_dir, "metrics.json")
     with open(metrics_path, "w", encoding="utf-8") as f:

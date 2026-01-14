@@ -167,6 +167,16 @@ python tools/predict_policy.py \
   --topk 5
 ```
 
+Predict with a specific dataset jsonl:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out/noop_aug \
+  --dataset-path /path/to/out/noop_aug/dataset_with_noop.jsonl \
+  --idx 0 \
+  --topk 5
+```
+
 Override to use two+diff input:
 ```bash
 python tools/predict_policy.py \
@@ -188,6 +198,18 @@ python tools/predict_policy.py \
   --render-overlay --overlay-out out.png
 ```
 
+Debug options for prediction ranking:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out/noop_aug \
+  --dataset-path /path/to/out/noop_aug/dataset_with_noop.jsonl \
+  --idx 0 \
+  --topk 5 \
+  --exclude-noop \
+  --score-mode logadd
+```
+
 ## Output structure
 ```
 out/
@@ -202,9 +224,14 @@ Learning outputs:
 policy_out/
   checkpoints/
     best.pt
+    last.pt
   metrics.json
 ```
 `out/vocab.json` stores the action_id vocabulary used for card labels.
+
+Checkpoint policy:
+- `last.pt` is always saved at the end of each epoch.
+- `best.pt` is saved when validation loss improves (when validation is enabled).
 
 Each line in `dataset.jsonl` contains:
 - `idx`: int
