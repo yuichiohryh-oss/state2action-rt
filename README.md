@@ -8,6 +8,7 @@ This repository intentionally avoids game- or IP-specific naming. Use only gener
 ## Requirements
 - Python 3.10+
 - opencv-python, numpy
+- torch, torchvision, tqdm (for learning/prediction)
 
 ## Input events.jsonl
 Each line is a JSON object. The schema is flexible, but the following keys are required:
@@ -45,6 +46,43 @@ Inspect a sample with a debug overlay:
 python tools/inspect_sample.py --out-dir /path/to/out --idx 0
 ```
 
+## Learning model
+This repository includes a minimal imitation learning model that predicts the next action as two heads:
+state image (256x256) -> CNN embedding -> action_id (card) + grid_id.
+
+Train the policy:
+```bash
+python tools/train_policy.py \
+  --data-dir /path/to/out \
+  --out-dir /path/to/policy_out \
+  --epochs 5 \
+  --batch-size 32 \
+  --lr 1e-3 \
+  --seed 7 \
+  --val-ratio 0.1 \
+  --gw 6 --gh 9 \
+  --device auto
+```
+
+Predict top-k candidates:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out \
+  --idx 0 \
+  --topk 5
+```
+
+Optional overlay for the top-1 grid cell:
+```bash
+python tools/predict_policy.py \
+  --checkpoint /path/to/policy_out/checkpoints/best.pt \
+  --data-dir /path/to/out \
+  --idx 0 \
+  --topk 5 \
+  --render-overlay --overlay-out out.png
+```
+
 ## Output structure
 ```
 out/
@@ -53,6 +91,15 @@ out/
     000000.png
     000001.png
 ```
+
+Learning outputs:
+```
+policy_out/
+  checkpoints/
+    best.pt
+  metrics.json
+```
+`out/vocab.json` stores the action_id vocabulary used for card labels.
 
 Each line in `dataset.jsonl` contains:
 - `idx`: int

@@ -13,6 +13,9 @@ authors = [{ name = "Codex" }]
 dependencies = [
   "opencv-python",
   "numpy",
+  "torch",
+  "torchvision",
+  "tqdm",
 ]
 
 [project.optional-dependencies]
