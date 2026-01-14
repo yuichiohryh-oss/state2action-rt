@@ -5,16 +5,25 @@ from torch import nn
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, num_actions: int, num_grids: int, embedding_dim: int = 256) -> None:
+    def __init__(
+        self,
+        num_actions: int,
+        num_grids: int,
+        embedding_dim: int = 256,
+        in_channels: int = 3,
+    ) -> None:
         super().__init__()
         if num_actions <= 0 or num_grids <= 0:
             raise ValueError("num_actions and num_grids must be positive")
+        if in_channels <= 0:
+            raise ValueError("in_channels must be positive")
         self.num_actions = num_actions
         self.num_grids = num_grids
         self.embedding_dim = embedding_dim
+        self.in_channels = in_channels
 
         self.backbone = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),

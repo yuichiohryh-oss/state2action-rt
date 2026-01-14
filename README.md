@@ -66,6 +66,11 @@ The tool writes `dataset_with_noop.jsonl` and keeps the original `dataset.jsonl`
 This repository includes a minimal imitation learning model that predicts the next action as two heads:
 state image (256x256) -> CNN embedding -> action_id (card) + grid_id.
 
+Two-frame mode concatenates the current frame (t) and a past frame (t - delta) along channels, producing a
+[6,256,256] tensor (current 3 channels, then past 3 channels). The past frame is loaded from the previous
+filename in the same directory (index - delta_frames); if it does not exist, the current frame is reused.
+When `--delta-sec` is provided and `meta.fps_effective` exists, the offset is converted to frames.
+
 Train the policy:
 ```bash
 python tools/train_policy.py \
@@ -76,6 +81,22 @@ python tools/train_policy.py \
   --lr 1e-3 \
   --seed 7 \
   --val-ratio 0.1 \
+  --gw 6 --gh 9 \
+  --device auto
+```
+
+Train with two-frame input:
+```bash
+python tools/train_policy.py \
+  --data-dir /path/to/out \
+  --out-dir /path/to/policy_out \
+  --epochs 5 \
+  --batch-size 32 \
+  --lr 1e-3 \
+  --seed 7 \
+  --val-ratio 0.1 \
+  --two-frame \
+  --delta-frames 1 \
   --gw 6 --gh 9 \
   --device auto
 ```

@@ -157,6 +157,9 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument("--two-frame", action="store_true", help="Concatenate current/past frames as input")
+    parser.add_argument("--delta-frames", type=int, default=1, help="Frame offset for past frame")
+    parser.add_argument("--delta-sec", type=float, default=None, help="Optional seconds offset for past frame")
     parser.add_argument("--gw", type=int, required=True, help="Grid width")
     parser.add_argument("--gh", type=int, required=True, help="Grid height")
     parser.add_argument(
@@ -184,8 +187,22 @@ def main() -> int:
     num_grids = args.gw * args.gh
 
     train_records, val_records = split_records(records, args.val_ratio, args.seed)
-    train_dataset = StateActionDataset(args.data_dir, train_records, vocab)
-    val_dataset = StateActionDataset(args.data_dir, val_records, vocab)
+    train_dataset = StateActionDataset(
+        args.data_dir,
+        train_records,
+        vocab,
+        two_frame=args.two_frame,
+        delta_frames=args.delta_frames,
+        delta_sec=args.delta_sec,
+    )
+    val_dataset = StateActionDataset(
+        args.data_dir,
+        val_records,
+        vocab,
+        two_frame=args.two_frame,
+        delta_frames=args.delta_frames,
+        delta_sec=args.delta_sec,
+    )
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
@@ -196,7 +213,8 @@ def main() -> int:
         print(f"using device: {device} ({device_name})")
     else:
         print(f"using device: {device}")
-    model = PolicyNet(num_actions=num_actions, num_grids=num_grids).to(device)
+    in_channels = 6 if args.two_frame else 3
+    model = PolicyNet(num_actions=num_actions, num_grids=num_grids, in_channels=in_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     grid_criterion = nn.CrossEntropyLoss(ignore_index=-1)
@@ -254,6 +272,9 @@ def main() -> int:
                     "gh": args.gh,
                     "embedding_dim": model.embedding_dim,
                     "id_to_action": vocab.id_to_action,
+                    "two_frame": args.two_frame,
+                    "delta_frames": args.delta_frames,
+                    "in_channels": in_channels,
                 },
                 ckpt_path,
             )

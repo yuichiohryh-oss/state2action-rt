@@ -102,18 +102,75 @@ def load_state_image_tensor(data_dir: str, state_path: str) -> torch.Tensor:
     return tensor
 
 
+def resolve_delta_frames(record: dict, delta_frames: int, delta_sec: float | None) -> int:
+    if delta_sec is None:
+        return delta_frames
+    meta = record.get("meta", {})
+    fps_effective = meta.get("fps_effective")
+    if fps_effective is None:
+        return delta_frames
+    try:
+        fps_value = float(fps_effective)
+    except (TypeError, ValueError):
+        return delta_frames
+    return max(0, int(round(delta_sec * fps_value)))
+
+
+def resolve_past_state_path(data_dir: str, state_path: str, delta_frames: int) -> str:
+    if delta_frames <= 0:
+        return state_path
+    directory, filename = os.path.split(state_path)
+    stem, ext = os.path.splitext(filename)
+    if not stem.isdigit():
+        return state_path
+    past_index = int(stem) - delta_frames
+    if past_index < 0:
+        return state_path
+    past_name = f"{past_index:0{len(stem)}d}{ext}"
+    past_path = os.path.join(directory, past_name) if directory else past_name
+    abs_path = os.path.join(data_dir, past_path)
+    if not os.path.exists(abs_path):
+        return state_path
+    return past_path
+
+
+def load_state_pair_tensor(data_dir: str, state_path: str, delta_frames: int) -> torch.Tensor:
+    current = load_state_image_tensor(data_dir, state_path)
+    past_path = resolve_past_state_path(data_dir, state_path, delta_frames)
+    past = load_state_image_tensor(data_dir, past_path)
+    return torch.cat([current, past], dim=0)
+
+
 class StateActionDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir: str, records: List[dict], vocab: ActionVocab) -> None:
+    def __init__(
+        self,
+        data_dir: str,
+        records: List[dict],
+        vocab: ActionVocab,
+        two_frame: bool = False,
+        delta_frames: int = 1,
+        delta_sec: float | None = None,
+    ) -> None:
+        if delta_frames < 0:
+            raise ValueError("delta_frames must be non-negative")
         self.data_dir = data_dir
         self.records = records
         self.vocab = vocab
+        self.two_frame = two_frame
+        self.delta_frames = delta_frames
+        self.delta_sec = delta_sec
 
     def __len__(self) -> int:
         return len(self.records)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, int]:
         record = self.records[idx]
-        image = load_state_image_tensor(self.data_dir, record["state_path"])
+        state_path = record["state_path"]
+        if self.two_frame:
+            delta_frames = resolve_delta_frames(record, self.delta_frames, self.delta_sec)
+            image = load_state_pair_tensor(self.data_dir, state_path, delta_frames)
+        else:
+            image = load_state_image_tensor(self.data_dir, state_path)
         action_id = str(record["action_id"])
         card_label = self.vocab.action_to_id[action_id]
         grid_label = int(record["grid_id"])
