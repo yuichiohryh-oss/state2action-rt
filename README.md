@@ -307,3 +307,66 @@ When `--video` points to an image directory, files are treated as a time series 
 
 ## Policy
 Do not include any game-specific proper nouns in code, comments, or documentation.
+
+## データセット生成（YouTube バッチ例）
+
+このリポジトリでは、動画ファイルと `events.jsonl` から、学習用の `dataset.jsonl` と `state_frames/*.png` を生成します。
+
+### 盤面 ROI（推奨ベースライン）
+
+720p の縦長動画に対して、以下の ROI パラメータが `videos/batch1/*` で実機確認されており、現在のベースライン設定です。
+
+```powershell
+python tools\\build_dataset.py `
+  --video  /path/to/videos/batch1/hog_yt_2026-01-11_164307.mp4 `
+  --events /path/to/videos/batch1/hog_yt_2026-01-11_164307.jsonl `
+  --out-dir /path/to/data/batch1 `
+  --lead-sec 0.8 `
+  --gw 6 --gh 9 `
+  --roi-y1 110 `
+  --roi-y2-mode fixed `
+  --roi-y2-fixed 570
+```
+
+**注意点**
+
+* `roi-y1 / roi-y2-fixed` は、上部・下部の UI を除外し、盤面のみが安定して切り出されるように調整されています。
+* これらの値は **720p 縦長動画を前提**としています。
+* 動画レイアウトが異なる場合は、学習前に必ず `tools/inspect_sample.py` で ROI を目視確認してください。
+
+---
+
+## 予定：手札 availability（行動制約）の導入
+
+盤面画像のみを入力とした場合、
+「リソース不足により実行できない行動（例：エリクサー不足）」を区別できず、
+**同一盤面に対して異なる教師行動が付く**という学習上の矛盾が発生します。
+
+これを避けるため、本プロジェクトでは **手札の availability（出せる／出せない）** を特徴量として追加する予定です。
+
+### 設計方針
+
+* 手札 UI の ROI：画面下端 **90〜97%**
+* 横方向に **4 スロット**へ分割
+* 各スロットを HSV 色空間に変換
+* 彩度（S）の平均値を使用
+
+  * `mean_S > 約30`  → 出せる（カラー表示）
+  * `mean_S <= 約30` → 出せない（グレー表示）
+
+### データセット形式（予定）
+
+各レコードに以下を追加します。
+
+```json
+"hand_available": [0, 0, 1, 1]
+```
+
+この情報は、
+
+* 学習時には追加の数値特徴量として使用し
+* 推論時には「不可能な行動を抑制するマスク」として利用します。
+
+この方法は、エリクサー量を直接数値認識するよりも実装が簡単かつ頑健であり、
+行動制約を表現するうえで本質的な情報を捉えられます。
+
