@@ -47,6 +47,13 @@ def ensure_hand_available(record: dict) -> dict:
     return record
 
 
+def load_hand_available(record: dict) -> torch.Tensor:
+    hand_available = record.get("hand_available")
+    if not isinstance(hand_available, (list, tuple)) or len(hand_available) != 4:
+        hand_available = DEFAULT_HAND_AVAILABLE
+    return torch.tensor(hand_available, dtype=torch.float32)
+
+
 def load_records_from_path(dataset_path: str) -> List[dict]:
     records: List[dict] = []
     with open(dataset_path, "r", encoding="utf-8") as f:
@@ -184,7 +191,7 @@ class StateActionDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.records)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, int]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, int, torch.Tensor]:
         record = self.records[idx]
         state_path = record["state_path"]
         if self.two_frame:
@@ -198,7 +205,8 @@ class StateActionDataset(torch.utils.data.Dataset):
         action_id = str(record["action_id"])
         card_label = self.vocab.action_to_id[action_id]
         grid_label = int(record["grid_id"])
-        return image, card_label, grid_label
+        hand_available = load_hand_available(record)
+        return image, card_label, grid_label, hand_available
 
 
 def load_record_by_idx(data_dir: str, idx: int, dataset_path: str | None = None) -> dict | None:
