@@ -90,3 +90,22 @@ def test_apply_noop_penalty_when_hand_empty() -> None:
     logits = torch.tensor([0.1, 0.2, 0.3])
     adjusted = predict_policy.apply_noop_penalty(logits, [0, 0, 0, 0], noop_idx=0, penalty=1.5)
     assert torch.allclose(adjusted, logits)
+
+
+def test_apply_action_mask_keeps_allowed_and_exempt() -> None:
+    logits = torch.zeros(10)
+    card_id_to_action_idx = {i: i for i in range(8)}
+    masked = predict_policy.apply_action_mask(
+        logits,
+        allowed_card_ids={2, 5},
+        noop_idx=8,
+        skill_idx=9,
+        card_id_to_action_idx_map=card_id_to_action_idx,
+    )
+    for idx in range(8):
+        if idx in (2, 5):
+            assert torch.isclose(masked[idx], torch.tensor(0.0))
+        else:
+            assert torch.isclose(masked[idx], torch.tensor(-1e9))
+    assert torch.isclose(masked[8], torch.tensor(0.0))
+    assert torch.isclose(masked[9], torch.tensor(0.0))

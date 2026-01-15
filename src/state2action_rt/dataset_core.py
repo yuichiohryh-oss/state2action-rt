@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 
 from .frame_source import FrameSource
 from .grid import xy_to_grid_id
+from .hand_cards import HandCardTemplate, infer_hand_card_ids_from_frame, load_hand_card_templates
 from .hand_features import hand_available_from_frame
 from .roi import RoiConfig, detect_roi, make_state_image
 
@@ -46,10 +47,17 @@ def build_dataset(
     hand_y1_ratio: float = 0.90,
     hand_y2_ratio: float = 0.97,
     hand_x_margin_ratio: float = 0.03,
+    hand_templates_dir: str | None = None,
+    hand_card_min_score: float = 0.6,
+    hand_template_size: Tuple[int, int] = (64, 64),
 ) -> List[Dict]:
     os.makedirs(out_dir, exist_ok=True)
     frames_dir = os.path.join(out_dir, "state_frames")
     os.makedirs(frames_dir, exist_ok=True)
+
+    templates: List[HandCardTemplate] = []
+    if hand_templates_dir:
+        templates = load_hand_card_templates(hand_templates_dir, template_size=hand_template_size)
 
     records: List[Dict] = []
     for idx, event in enumerate(events):
@@ -111,6 +119,19 @@ def build_dataset(
             y2_ratio=hand_y2_ratio,
             x_margin_ratio=hand_x_margin_ratio,
         )
+        if templates:
+            record = with_hand_card_ids(
+                record,
+                frame,
+                templates,
+                min_score=hand_card_min_score,
+                y1_ratio=hand_y1_ratio,
+                y2_ratio=hand_y2_ratio,
+                x_margin_ratio=hand_x_margin_ratio,
+                n_slots=4,
+                template_size=hand_template_size,
+                warn_fn=warn_fn,
+            )
         records.append(record)
 
     dataset_path = os.path.join(out_dir, "dataset.jsonl")
@@ -138,3 +159,32 @@ def with_hand_available(
         n_slots=4,
     )
     return {**record, "hand_available": [int(v) for v in avail_list]}
+
+
+def with_hand_card_ids(
+    record: Dict,
+    frame_bgr: np.ndarray,
+    templates: List[HandCardTemplate],
+    min_score: float,
+    y1_ratio: float,
+    y2_ratio: float,
+    x_margin_ratio: float,
+    n_slots: int,
+    template_size: Tuple[int, int],
+    warn_fn: Callable[[str], None],
+) -> Dict:
+    try:
+        card_ids = infer_hand_card_ids_from_frame(
+            frame_bgr,
+            templates,
+            min_score=min_score,
+            y1_ratio=y1_ratio,
+            y2_ratio=y2_ratio,
+            x_margin_ratio=x_margin_ratio,
+            n_slots=n_slots,
+            template_size=template_size,
+        )
+    except ValueError as exc:
+        warn_fn(f"hand_card_ids failed: {exc}")
+        card_ids = [-1 for _ in range(n_slots)]
+    return {**record, "hand_card_ids": [int(v) for v in card_ids]}
