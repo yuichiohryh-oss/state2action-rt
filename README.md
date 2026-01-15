@@ -76,6 +76,18 @@ Inspect a sample with a debug overlay:
 python tools/inspect_sample.py --out-dir /path/to/out --idx 0
 ```
 
+Inspect hand slot availability (HSV S-mean):
+```bash
+python tools/inspect_hand.py \
+  --video /path/to/video.mp4 \
+  --out-dir out/hand_debug \
+  --stride 15 \
+  --start-sec 0 \
+  --end-sec -1
+```
+`out/hand_debug/summary.csv` columns:
+`t_sec,frame_idx,mean_s0,mean_s1,mean_s2,mean_s3,avail0,avail1,avail2,avail3`
+
 ## No-op augmentation
 To reduce unnecessary actions, you can augment the dataset with explicit "__NOOP__" samples. This adds records where the model should output "do nothing" for a given state.
 
