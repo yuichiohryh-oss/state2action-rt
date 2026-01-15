@@ -273,6 +273,7 @@ policy_out/
     last.pt
   metrics.json
 ```
+```
 `out/vocab.json` stores the action_id vocabulary used for card labels.
 
 Checkpoint policy:
