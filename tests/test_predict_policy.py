@@ -77,3 +77,16 @@ def test_predict_select_device_uses_mps(monkeypatch) -> None:
     monkeypatch.setattr(torch.backends, "mps", DummyMps(), raising=False)
     device = predict_policy.select_device("auto")
     assert device.type == "mps"
+
+
+def test_apply_noop_penalty_when_hand_available() -> None:
+    logits = torch.tensor([0.1, 0.2, 0.3])
+    adjusted = predict_policy.apply_noop_penalty(logits, [0, 1, 0, 0], noop_idx=0, penalty=1.5)
+    assert torch.isclose(adjusted[0], torch.tensor(-1.4))
+    assert torch.allclose(adjusted[1:], logits[1:])
+
+
+def test_apply_noop_penalty_when_hand_empty() -> None:
+    logits = torch.tensor([0.1, 0.2, 0.3])
+    adjusted = predict_policy.apply_noop_penalty(logits, [0, 0, 0, 0], noop_idx=0, penalty=1.5)
+    assert torch.allclose(adjusted, logits)

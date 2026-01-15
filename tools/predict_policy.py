@@ -8,6 +8,7 @@ import cv2
 import torch
 
 from state2action_rt.grid import grid_id_to_cell_rect
+from state2action_rt.hand_features import hand_available_from_frame
 from state2action_rt.learning.dataset import (
     ActionVocab,
     infer_grid_shape,
@@ -52,6 +53,30 @@ def combine_score(card_prob: float, grid_prob: float, mode: str) -> float:
         eps = 1e-8
         return math.log(card_prob + eps) + math.log(grid_prob + eps)
     raise ValueError(f"unknown score mode: {mode}")
+
+
+def apply_noop_penalty(
+    logits: torch.Tensor,
+    hand_available: torch.Tensor | List[int],
+    noop_idx: int | None,
+    penalty: float,
+) -> torch.Tensor:
+    if noop_idx is None or penalty <= 0:
+        return logits
+    if isinstance(hand_available, torch.Tensor):
+        any_available = bool(torch.any(hand_available != 0).item())
+    else:
+        any_available = any(bool(v) for v in hand_available)
+    if not any_available:
+        return logits
+    adjusted = logits.clone()
+    if adjusted.dim() == 1:
+        adjusted[noop_idx] -= penalty
+    elif adjusted.dim() == 2:
+        adjusted[:, noop_idx] -= penalty
+    else:
+        raise ValueError("logits must be 1D or 2D")
+    return adjusted
 
 
 def build_candidates(
@@ -120,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--render-overlay", action="store_true", help="Write top-1 grid overlay to out.png")
     parser.add_argument("--overlay-out", default="out.png", help="Overlay output path")
     parser.add_argument("--exclude-noop", action="store_true", help="Exclude __NOOP__ from ranking")
+    parser.add_argument("--hand-s-th", type=float, default=30.0, help="Hand mean-S threshold")
+    parser.add_argument("--hand-y1-ratio", type=float, default=0.90, help="Hand ROI y1 ratio")
+    parser.add_argument("--hand-y2-ratio", type=float, default=0.97, help="Hand ROI y2 ratio")
+    parser.add_argument("--hand-x-margin-ratio", type=float, default=0.03, help="Hand ROI x margin ratio")
+    parser.add_argument("--noop-penalty", type=float, default=1.5, help="NOOP logit penalty")
     parser.add_argument(
         "--score-mode",
         choices=["mul", "add", "logadd"],
@@ -220,6 +250,26 @@ def main() -> int:
     model.to(device)
     model.eval()
 
+    state_path = os.path.join(args.data_dir, record["state_path"])
+    frame_bgr = cv2.imread(state_path, cv2.IMREAD_COLOR)
+    if frame_bgr is None:
+        warn(f"failed to load frame for hand_available: {state_path}")
+        hand_available = [0, 0, 0, 0]
+    else:
+        try:
+            _, hand_available, _, _ = hand_available_from_frame(
+                frame_bgr,
+                s_th=args.hand_s_th,
+                y1_ratio=args.hand_y1_ratio,
+                y2_ratio=args.hand_y2_ratio,
+                x_margin_ratio=args.hand_x_margin_ratio,
+                n_slots=4,
+            )
+        except ValueError as exc:
+            warn(f"hand_available failed: {exc}")
+            hand_available = [0, 0, 0, 0]
+    hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
+
     if two_frame:
         delta_frames = resolve_delta_frames(record, delta_frames, args.delta_sec)
         if diff_channels:
@@ -232,7 +282,9 @@ def main() -> int:
         image = load_state_image_tensor(args.data_dir, record["state_path"]).unsqueeze(0)
     image = image.to(device)
     with torch.no_grad():
-        card_logits, grid_logits = model(image)
+        card_logits, grid_logits = model(image, hand_tensor)
+        noop_idx = vocab.action_to_id.get("__NOOP__")
+        card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
 
