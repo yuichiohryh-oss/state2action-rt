@@ -8,6 +8,11 @@ import cv2
 import torch
 
 from state2action_rt.grid import grid_id_to_cell_rect
+from state2action_rt.hand_cards import (
+    infer_hand_card_ids_from_frame,
+    load_hand_card_templates,
+    parse_card_id,
+)
 from state2action_rt.hand_features import hand_available_from_frame
 from state2action_rt.learning.dataset import (
     ActionVocab,
@@ -77,6 +82,44 @@ def apply_noop_penalty(
     else:
         raise ValueError("logits must be 1D or 2D")
     return adjusted
+
+
+def build_card_id_to_action_idx_map(vocab: ActionVocab, max_card_id: int | None = None) -> dict[int, int]:
+    mapping: dict[int, int] = {}
+    for idx, action_id in enumerate(vocab.id_to_action):
+        card_id = parse_card_id(str(action_id))
+        if card_id is None:
+            continue
+        if max_card_id is not None and card_id >= max_card_id:
+            continue
+        mapping[card_id] = idx
+    return mapping
+
+
+def apply_action_mask(
+    logits: torch.Tensor,
+    allowed_card_ids: set[int],
+    noop_idx: int | None,
+    skill_idx: int | None,
+    card_id_to_action_idx_map: dict[int, int],
+    mask_value: float = -1e9,
+) -> torch.Tensor:
+    if not card_id_to_action_idx_map:
+        return logits
+    exempt_indices = {idx for idx in (noop_idx, skill_idx) if idx is not None}
+    masked = logits.clone()
+    for card_id, action_idx in card_id_to_action_idx_map.items():
+        if action_idx in exempt_indices:
+            continue
+        if card_id in allowed_card_ids:
+            continue
+        if masked.dim() == 1:
+            masked[action_idx] = mask_value
+        elif masked.dim() == 2:
+            masked[:, action_idx] = mask_value
+        else:
+            raise ValueError("logits must be 1D or 2D")
+    return masked
 
 
 def build_candidates(
@@ -149,6 +192,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hand-y1-ratio", type=float, default=0.90, help="Hand ROI y1 ratio")
     parser.add_argument("--hand-y2-ratio", type=float, default=0.97, help="Hand ROI y2 ratio")
     parser.add_argument("--hand-x-margin-ratio", type=float, default=0.03, help="Hand ROI x margin ratio")
+    parser.add_argument(
+        "--hand-templates-dir",
+        default=os.path.join("templates", "hand_cards"),
+        help="Directory containing hand card templates",
+    )
+    parser.add_argument("--hand-card-min-score", type=float, default=0.6, help="Min template score for card id")
+    parser.add_argument(
+        "--disable-hand-card-mask",
+        action="store_true",
+        help="Disable hand card action masking (debug)",
+    )
     parser.add_argument("--noop-penalty", type=float, default=1.5, help="NOOP logit penalty")
     parser.add_argument(
         "--score-mode",
@@ -255,6 +309,7 @@ def main() -> int:
     if frame_bgr is None:
         warn(f"failed to load frame for hand_available: {state_path}")
         hand_available = [0, 0, 0, 0]
+        hand_card_ids = [-1, -1, -1, -1]
     else:
         try:
             _, hand_available, _, _ = hand_available_from_frame(
@@ -268,6 +323,23 @@ def main() -> int:
         except ValueError as exc:
             warn(f"hand_available failed: {exc}")
             hand_available = [0, 0, 0, 0]
+        templates = load_hand_card_templates(args.hand_templates_dir)
+        if not templates:
+            hand_card_ids = [-1, -1, -1, -1]
+        else:
+            try:
+                hand_card_ids = infer_hand_card_ids_from_frame(
+                    frame_bgr,
+                    templates,
+                    min_score=args.hand_card_min_score,
+                    y1_ratio=args.hand_y1_ratio,
+                    y2_ratio=args.hand_y2_ratio,
+                    x_margin_ratio=args.hand_x_margin_ratio,
+                    n_slots=4,
+                )
+            except ValueError as exc:
+                warn(f"hand_card_ids failed: {exc}")
+                hand_card_ids = [-1, -1, -1, -1]
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
 
     if two_frame:
@@ -285,6 +357,23 @@ def main() -> int:
         card_logits, grid_logits = model(image, hand_tensor)
         noop_idx = vocab.action_to_id.get("__NOOP__")
         card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
+        if not args.disable_hand_card_mask:
+            skill_idx = vocab.action_to_id.get("SKILL_RIGHT")
+            allowed_card_ids = {
+                card_id
+                for slot_id, card_id in enumerate(hand_card_ids)
+                if slot_id < len(hand_available)
+                and bool(hand_available[slot_id])
+                and card_id != -1
+            }
+            card_id_to_action_idx = build_card_id_to_action_idx_map(vocab, max_card_id=8)
+            card_logits = apply_action_mask(
+                card_logits,
+                allowed_card_ids,
+                noop_idx,
+                skill_idx,
+                card_id_to_action_idx,
+            )
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
 

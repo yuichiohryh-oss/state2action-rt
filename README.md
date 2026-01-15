@@ -211,7 +211,15 @@ python tools/predict_policy.py \
   --device auto
 ```
 Prediction computes `hand_available` from the current frame and applies a NOOP logit penalty when any slot is
-available; strict slot-to-card masking will be added after slot-to-card mapping is introduced.
+available. When hand templates are available, it also estimates `hand_card_ids` and masks card logits so
+unavailable cards are excluded from top-k results.
+
+Hand card templates (fixed 8-card deck):
+- Place card icon templates in `templates/hand_cards/` (e.g. `0.png` .. `7.png`).
+- Filenames must contain a numeric card_id; these ids must match the numeric card ids embedded in `action_id`.
+- Use `--hand-templates-dir` and `--hand-card-min-score` to control the matcher.
+- Set `--disable-hand-card-mask` to debug without masking.
+- Matching quality depends on template resolution and UI theme consistency.
 
 Predict with a specific dataset jsonl:
 ```bash
@@ -278,6 +286,10 @@ out/
   state_frames/
     000000.png
     000001.png
+templates/
+  hand_cards/
+    0.png
+    1.png
 ```
 
 Learning outputs:
@@ -308,6 +320,7 @@ Each line in `dataset.jsonl` contains:
 - `roi`: [x1, y1, x2, y2]
 - `state_path`: relative path to 256x256 state image
 - `hand_available`: [0/1, 0/1, 0/1, 0/1] (per-slot availability via HSV mean S; bottom 90-97% ROI, 4 slots, threshold 30)
+- `hand_card_ids`: [card_id, card_id, card_id, card_id] or -1 for unknown (optional; present when templates are provided)
 - `meta`: object (example: gw/gh/lead_sec/fps_effective)
 
 ## Parameters
