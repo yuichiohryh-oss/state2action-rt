@@ -41,15 +41,19 @@ class ActionVocab:
             json.dump(payload, f, ensure_ascii=True, indent=2)
 
 
+def ensure_hand_available(record: dict) -> dict:
+    if "hand_available" not in record:
+        record["hand_available"] = list(DEFAULT_HAND_AVAILABLE)
+    return record
+
+
 def load_records_from_path(dataset_path: str) -> List[dict]:
     records: List[dict] = []
     with open(dataset_path, "r", encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
-            record = json.loads(line)
-            if "hand_available" not in record:
-                record["hand_available"] = list(DEFAULT_HAND_AVAILABLE)
+            record = ensure_hand_available(json.loads(line))
             records.append(record)
     return records
 

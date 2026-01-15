@@ -5,7 +5,13 @@ import cv2
 import numpy as np
 import torch
 
-from state2action_rt.learning.dataset import ActionVocab, StateActionDataset, load_or_create_vocab, load_records
+from state2action_rt.learning.dataset import (
+    ActionVocab,
+    StateActionDataset,
+    load_or_create_vocab,
+    load_records,
+    load_records_from_path,
+)
 
 
 def write_dummy_image(path: str, value: int) -> None:
@@ -154,3 +160,25 @@ def test_dataset_two_frame_diff_channels(tmp_path) -> None:
 
     image_fallback, _, _ = dataset[0]
     assert torch.allclose(image_fallback[6:], torch.zeros_like(image_fallback[6:]))
+
+
+def test_load_records_from_path_no_duplicates_and_default_hand(tmp_path) -> None:
+    dataset_path = tmp_path / "dataset.jsonl"
+    records = [
+        {"idx": 0, "action_id": "a", "grid_id": 1, "state_path": "state_frames/000000.png"},
+        {
+            "idx": 1,
+            "action_id": "b",
+            "grid_id": 2,
+            "state_path": "state_frames/000001.png",
+            "hand_available": [0, 1, 0, 1],
+        },
+    ]
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+    loaded = load_records_from_path(str(dataset_path))
+    assert len(loaded) == 2
+    assert loaded[0]["hand_available"] == [1, 1, 1, 1]
+    assert loaded[1]["hand_available"] == [0, 1, 0, 1]
