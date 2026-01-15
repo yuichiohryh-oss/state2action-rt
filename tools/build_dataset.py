@@ -63,6 +63,25 @@ def main() -> int:
         default=None,
         help="FPS override/fallback (required for image directory input)",
     )
+    parser.add_argument("--hand-s-th", type=int, default=30, help="Hand HSV S threshold")
+    parser.add_argument(
+        "--hand-y1-ratio",
+        type=float,
+        default=0.90,
+        help="Hand ROI top ratio (relative to frame height)",
+    )
+    parser.add_argument(
+        "--hand-y2-ratio",
+        type=float,
+        default=0.97,
+        help="Hand ROI bottom ratio (relative to frame height)",
+    )
+    parser.add_argument(
+        "--hand-x-margin-ratio",
+        type=float,
+        default=0.03,
+        help="Hand ROI horizontal margin ratio (relative to frame width)",
+    )
 
     args = parser.parse_args()
 
@@ -91,10 +110,14 @@ def main() -> int:
             frame_source,
             args.out_dir,
             roi_config,
-            grid_config,
-            args.lead_sec,
-            warn,
-        )
+        grid_config,
+        args.lead_sec,
+        warn,
+        hand_s_th=float(args.hand_s_th),
+        hand_y1_ratio=args.hand_y1_ratio,
+        hand_y2_ratio=args.hand_y2_ratio,
+        hand_x_margin_ratio=args.hand_x_margin_ratio,
+    )
     finally:
         if frame_source.close:
             frame_source.close()

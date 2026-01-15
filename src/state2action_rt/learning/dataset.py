@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 import torch
 
+DEFAULT_HAND_AVAILABLE = [1, 1, 1, 1]
+
 
 @dataclass(frozen=True)
 class ActionVocab:
@@ -45,7 +47,10 @@ def load_records_from_path(dataset_path: str) -> List[dict]:
         for line in f:
             if not line.strip():
                 continue
-            records.append(json.loads(line))
+            record = json.loads(line)
+            if "hand_available" not in record:
+                record["hand_available"] = list(DEFAULT_HAND_AVAILABLE)
+            records.append(record)
     return records
 
 

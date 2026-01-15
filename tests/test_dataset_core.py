@@ -2,7 +2,7 @@ import json
 
 import numpy as np
 
-from state2action_rt.dataset_core import GridConfig, build_dataset
+from state2action_rt.dataset_core import GridConfig, build_dataset, with_hand_available
 from state2action_rt.frame_source import FrameSource
 from state2action_rt.roi import RoiConfig
 
@@ -31,6 +31,7 @@ def test_build_dataset_single_record(tmp_path):
     assert records[0]["grid_id"] == 3
     assert records[0]["x_rel"] == 0.75
     assert records[0]["y_rel"] == 0.75
+    assert records[0]["hand_available"] == [0, 0, 0, 0]
 
     dataset_path = out_dir / "dataset.jsonl"
     with open(dataset_path, "r", encoding="utf-8") as f:
@@ -40,3 +41,19 @@ def test_build_dataset_single_record(tmp_path):
     assert data[0]["y"] == 75.0
     assert data[0]["meta"]["fps_effective"] == 10.0
     assert (out_dir / data[0]["state_path"]).exists()
+    assert data[0]["hand_available"] == [0, 0, 0, 0]
+
+
+def test_with_hand_available_pure_function():
+    frame = np.full((120, 160, 3), 200, dtype=np.uint8)
+    record = {"idx": 7}
+    updated = with_hand_available(
+        record,
+        frame,
+        s_th=30.0,
+        y1_ratio=0.9,
+        y2_ratio=0.97,
+        x_margin_ratio=0.03,
+    )
+    assert "hand_available" not in record
+    assert updated["hand_available"] == [0, 0, 0, 0]

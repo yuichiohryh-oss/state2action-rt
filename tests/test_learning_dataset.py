@@ -45,6 +45,7 @@ def test_dataset_loads_and_builds_vocab(tmp_path) -> None:
             f.write(json.dumps(record, ensure_ascii=True) + "\n")
 
     loaded = load_records(str(data_dir))
+    assert loaded[0]["hand_available"] == [1, 1, 1, 1]
     vocab = load_or_create_vocab(str(data_dir), loaded)
     assert (data_dir / "vocab.json").exists()
 
