@@ -210,6 +210,8 @@ python tools/predict_policy.py \
   --topk 5 \
   --device auto
 ```
+Prediction computes `hand_available` from the current frame and applies a NOOP logit penalty when any slot is
+available; strict slot-to-card masking will be added after slot-to-card mapping is introduced.
 
 Predict with a specific dataset jsonl:
 ```bash
