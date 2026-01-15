@@ -112,20 +112,20 @@ def main() -> int:
 
     try:
         build_dataset(
-            events,
-            frame_source,
-            args.out_dir,
-            roi_config,
-            grid_config,
-            args.lead_sec,
-            warn,
+            events=events,
+            frame_source=frame_source,
+            out_dir=args.out_dir,
+            roi_config=roi_config,
+            grid_config=grid_config,
+            lead_sec=args.lead_sec,
+            warn_fn=warn,
             hand_s_th=float(args.hand_s_th),
             hand_y1_ratio=args.hand_y1_ratio,
             hand_y2_ratio=args.hand_y2_ratio,
             hand_x_margin_ratio=args.hand_x_margin_ratio,
             hand_templates_dir=args.hand_templates_dir,
             hand_card_min_score=args.hand_card_min_score,
-    )
+        )
     finally:
         if frame_source.close:
             frame_source.close()
