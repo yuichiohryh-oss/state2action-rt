@@ -56,11 +56,14 @@ def test_dataset_loads_and_builds_vocab(tmp_path) -> None:
     assert (data_dir / "vocab.json").exists()
 
     dataset = StateActionDataset(str(data_dir), loaded, vocab)
-    image, card_label, grid_label = dataset[0]
+    image, card_label, grid_label, hand_available = dataset[0]
     assert isinstance(image, torch.Tensor)
     assert image.shape == (3, 256, 256)
     assert image.dtype == torch.float32
     assert grid_label == 3
+    assert hand_available.shape == (4,)
+    assert hand_available.dtype == torch.float32
+    assert torch.allclose(hand_available, torch.tensor([1.0, 1.0, 1.0, 1.0]))
     assert vocab.id_to_action == ["a_action", "b_action"]
     assert card_label == vocab.action_to_id["b_action"]
 
@@ -102,12 +105,13 @@ def test_dataset_two_frame_concat_and_fallback(tmp_path) -> None:
     vocab = load_or_create_vocab(str(data_dir), loaded)
     dataset = StateActionDataset(str(data_dir), loaded, vocab, two_frame=True, delta_frames=1)
 
-    image, _, _ = dataset[1]
+    image, _, _, hand_available = dataset[1]
     assert image.shape == (6, 256, 256)
     assert abs(float(image[0, 0, 0]) - (20.0 / 255.0)) < 1e-6
     assert abs(float(image[3, 0, 0]) - (10.0 / 255.0)) < 1e-6
+    assert hand_available.shape == (4,)
 
-    image_fallback, _, _ = dataset[0]
+    image_fallback, _, _, _ = dataset[0]
     assert torch.allclose(image_fallback[:3], image_fallback[3:])
 
 
@@ -152,13 +156,14 @@ def test_dataset_two_frame_diff_channels(tmp_path) -> None:
         delta_frames=1,
     )
 
-    image, _, _ = dataset[1]
+    image, _, _, hand_available = dataset[1]
     assert image.shape == (9, 256, 256)
     assert abs(float(image[0, 0, 0]) - (20.0 / 255.0)) < 1e-6
     assert abs(float(image[3, 0, 0]) - (10.0 / 255.0)) < 1e-6
     assert abs(float(image[6, 0, 0]) - (10.0 / 255.0)) < 1e-6
+    assert hand_available.shape == (4,)
 
-    image_fallback, _, _ = dataset[0]
+    image_fallback, _, _, _ = dataset[0]
     assert torch.allclose(image_fallback[6:], torch.zeros_like(image_fallback[6:]))
 
 
@@ -182,3 +187,25 @@ def test_load_records_from_path_no_duplicates_and_default_hand(tmp_path) -> None
     assert len(loaded) == 2
     assert loaded[0]["hand_available"] == [1, 1, 1, 1]
     assert loaded[1]["hand_available"] == [0, 1, 0, 1]
+
+
+def test_dataset_default_hand_available_when_missing(tmp_path) -> None:
+    data_dir = tmp_path / "out"
+    frames_dir = data_dir / "state_frames"
+    frames_dir.mkdir(parents=True)
+
+    write_dummy_image(str(frames_dir / "000000.png"), 10)
+
+    records = [
+        {
+            "idx": 0,
+            "action_id": "action_1",
+            "grid_id": 2,
+            "state_path": "state_frames/000000.png",
+            "meta": {"gw": 6, "gh": 9},
+        }
+    ]
+    vocab = ActionVocab(["action_1"])
+    dataset = StateActionDataset(str(data_dir), records, vocab)
+    _, _, _, hand_available = dataset[0]
+    assert torch.allclose(hand_available, torch.tensor([1.0, 1.0, 1.0, 1.0]))

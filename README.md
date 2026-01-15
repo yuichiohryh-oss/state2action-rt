@@ -118,6 +118,7 @@ Two-frame mode concatenates the current frame (t) and a past frame (t - delta) a
 [9,256,256] where diff = current - past. The past frame is loaded from the previous filename in the same
 directory (index - delta_frames); if it does not exist, the current frame is reused. When `--delta-sec`
 is provided and `meta.fps_effective` exists, the offset is converted to frames.
+During training, `hand_available` (length 4) is concatenated to the image embedding before the action/grid heads.
 
 Train the policy:
 ```bash

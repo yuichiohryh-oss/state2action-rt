@@ -92,11 +92,12 @@ def evaluate(
     noop_total = 0.0
     total_samples = 0
     with torch.no_grad():
-        for images, card_labels, grid_labels in loader:
+        for images, card_labels, grid_labels, hand_available in loader:
             images = images.to(device)
             card_labels = card_labels.to(device)
             grid_labels = grid_labels.to(device)
-            card_logits, grid_logits = model(images)
+            hand_available = hand_available.to(device)
+            card_logits, grid_logits = model(images, hand_available=hand_available)
             loss = criterion(card_logits, card_labels) + grid_criterion(grid_logits, grid_labels)
             batch_size = images.size(0)
             total_loss += loss.item() * batch_size
@@ -246,12 +247,13 @@ def main() -> int:
         model.train()
         running_loss = 0.0
         total_samples = 0
-        for images, card_labels, grid_labels in tqdm(train_loader, desc=f"epoch {epoch}"):
+        for images, card_labels, grid_labels, hand_available in tqdm(train_loader, desc=f"epoch {epoch}"):
             images = images.to(device)
             card_labels = card_labels.to(device)
             grid_labels = grid_labels.to(device)
+            hand_available = hand_available.to(device)
             optimizer.zero_grad()
-            card_logits, grid_logits = model(images)
+            card_logits, grid_logits = model(images, hand_available=hand_available)
             loss = criterion(card_logits, card_labels) + grid_criterion(grid_logits, grid_labels)
             loss.backward()
             optimizer.step()

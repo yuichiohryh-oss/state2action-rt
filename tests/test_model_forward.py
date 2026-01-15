@@ -25,3 +25,12 @@ def test_model_forward_two_frame_diff() -> None:
     card_logits, grid_logits = model(batch)
     assert card_logits.shape == (2, 4)
     assert grid_logits.shape == (2, 6)
+
+
+def test_model_forward_with_hand_available() -> None:
+    model = PolicyNet(num_actions=4, num_grids=6)
+    batch = torch.zeros((2, 3, 256, 256))
+    hand_available = torch.tensor([[1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]])
+    card_logits, grid_logits = model(batch, hand_available=hand_available)
+    assert card_logits.shape == (2, 4)
+    assert grid_logits.shape == (2, 6)
