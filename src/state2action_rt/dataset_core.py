@@ -9,6 +9,7 @@ import cv2
 
 from .frame_source import FrameSource
 from .grid import xy_to_grid_id
+from .hand_features import hand_available_from_frame
 from .roi import RoiConfig, detect_roi, make_state_image
 
 
@@ -41,6 +42,10 @@ def build_dataset(
     grid_config: GridConfig,
     lead_sec: float,
     warn_fn: Callable[[str], None],
+    hand_s_th: float = 30.0,
+    hand_y1_ratio: float = 0.90,
+    hand_y2_ratio: float = 0.97,
+    hand_x_margin_ratio: float = 0.03,
 ) -> List[Dict]:
     os.makedirs(out_dir, exist_ok=True)
     frames_dir = os.path.join(out_dir, "state_frames")
@@ -98,6 +103,14 @@ def build_dataset(
                 "fps_effective": float(frame_source.fps),
             },
         }
+        record = with_hand_available(
+            record,
+            frame,
+            s_th=hand_s_th,
+            y1_ratio=hand_y1_ratio,
+            y2_ratio=hand_y2_ratio,
+            x_margin_ratio=hand_x_margin_ratio,
+        )
         records.append(record)
 
     dataset_path = os.path.join(out_dir, "dataset.jsonl")
@@ -106,3 +119,22 @@ def build_dataset(
             f.write(json.dumps(record, ensure_ascii=True) + "\n")
 
     return records
+
+
+def with_hand_available(
+    record: Dict,
+    frame_bgr: np.ndarray,
+    s_th: float = 30.0,
+    y1_ratio: float = 0.90,
+    y2_ratio: float = 0.97,
+    x_margin_ratio: float = 0.03,
+) -> Dict:
+    _, avail_list, _, _ = hand_available_from_frame(
+        frame_bgr,
+        s_th=s_th,
+        y1_ratio=y1_ratio,
+        y2_ratio=y2_ratio,
+        x_margin_ratio=x_margin_ratio,
+        n_slots=4,
+    )
+    return {**record, "hand_available": [int(v) for v in avail_list]}

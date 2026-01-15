@@ -304,6 +304,7 @@ Each line in `dataset.jsonl` contains:
 - `y_rel`: float
 - `roi`: [x1, y1, x2, y2]
 - `state_path`: relative path to 256x256 state image
+- `hand_available`: [0/1, 0/1, 0/1, 0/1] (per-slot availability via HSV mean S; bottom 90-97% ROI, 4 slots, threshold 30)
 - `meta`: object (example: gw/gh/lead_sec/fps_effective)
 
 ## Parameters
