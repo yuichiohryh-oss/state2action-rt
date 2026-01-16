@@ -400,3 +400,6 @@ python tools\\build_dataset.py `
 この方法は、エリクサー量を直接数値認識するよりも実装が簡単かつ頑健であり、
 行動制約を表現するうえで本質的な情報を捉えられます。
 
+## Status
+
+詳細は PROJECT_STATE.md を参照。
