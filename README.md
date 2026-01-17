@@ -54,6 +54,48 @@ Labeler keys:
 - U: undo last event
 - H: print help to console
 
+## Windows / PowerShell 利用時の注意
+
+### ❗ コマンド改行に関する注意
+
+本リポジトリのコマンド例では、Linux / macOS で一般的な `\`（バックスラッシュ）による改行を使用することがあります。
+
+**PowerShell では、この書き方は使用できません。**
+
+PowerShell で `\` を使うと、次のエラーが発生します。
+
+```text
+単項演算子 '--' の後に式が存在しません
+```
+
+### 原因
+
+これは **PowerShell 固有の構文仕様**です。
+エラーは Python や本プロジェクトの不具合ではありません。
+
+### 対処方法（PowerShell）
+
+#### 方法1: 1行で実行（最も安全）
+
+```powershell
+python tools/inspect_hand.py --video videos/example.mp4 --out-dir out/debug
+```
+
+#### 方法2: バッククォート（`）による改行
+
+```powershell
+python tools/inspect_hand.py `
+  --video videos/example.mp4 `
+  --out-dir out/debug
+```
+
+※ 行末に空白を入れないよう注意してください。
+
+### 補足
+
+* `\` による改行は Linux / macOS 専用です
+* PowerShell では必ずバッククォート（`）を使用してください
+
 ## Usage
 Install dependencies:
 ```bash
