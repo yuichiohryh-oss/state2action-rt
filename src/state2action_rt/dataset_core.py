@@ -7,6 +7,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 
+from .elixir_features import ElixirRoiPixels, estimate_elixir_from_frame
 from .frame_source import FrameSource
 from .grid import xy_to_grid_id
 from .hand_cards import HandCardTemplate
@@ -51,6 +52,17 @@ def build_dataset(
     hand_card_min_score: float = 0.6,
     hand_template_size: Tuple[int, int] = (64, 64),
     hand_roi_pixels: HandRoiPixels | None = None,
+    elixir_roi_pixels: ElixirRoiPixels | None = None,
+    elixir_purple_h_min: int = 120,
+    elixir_purple_h_max: int = 170,
+    elixir_purple_s_min: int = 60,
+    elixir_purple_v_min: int = 40,
+    elixir_col_fill_ratio_th: float = 0.35,
+    elixir_min_purple_ratio: float = 0.01,
+    elixir_max_holes_ratio: float = 0.6,
+    elixir_allow_empty: bool = False,
+    elixir_empty_purple_ratio_max: float = 0.002,
+    elixir_empty_mean_s_max: float = 80.0,
 ) -> List[Dict]:
     os.makedirs(out_dir, exist_ok=True)
     frames_dir = os.path.join(out_dir, "state_frames")
@@ -126,6 +138,22 @@ def build_dataset(
             n_slots=4,
             template_size=hand_template_size,
             hand_roi_pixels=hand_roi_pixels,
+            warn_fn=warn_fn,
+        )
+        record = with_elixir_features(
+            record,
+            frame,
+            elixir_roi_pixels=elixir_roi_pixels,
+            purple_h_min=elixir_purple_h_min,
+            purple_h_max=elixir_purple_h_max,
+            purple_s_min=elixir_purple_s_min,
+            purple_v_min=elixir_purple_v_min,
+            col_fill_ratio_th=elixir_col_fill_ratio_th,
+            min_purple_ratio=elixir_min_purple_ratio,
+            max_holes_ratio=elixir_max_holes_ratio,
+            allow_empty=elixir_allow_empty,
+            empty_purple_ratio_max=elixir_empty_purple_ratio_max,
+            empty_mean_s_max=elixir_empty_mean_s_max,
             warn_fn=warn_fn,
         )
         records.append(record)
@@ -210,4 +238,46 @@ def with_hand_features(
         "hand_available": available,
         "hand_card_ids": card_ids,
         "hand_scores": scores,
+    }
+
+
+def with_elixir_features(
+    record: Dict,
+    frame_bgr: np.ndarray,
+    elixir_roi_pixels: ElixirRoiPixels | None,
+    purple_h_min: int,
+    purple_h_max: int,
+    purple_s_min: int,
+    purple_v_min: int,
+    col_fill_ratio_th: float,
+    min_purple_ratio: float,
+    max_holes_ratio: float,
+    allow_empty: bool,
+    empty_purple_ratio_max: float,
+    empty_mean_s_max: float,
+    warn_fn: Callable[[str], None],
+) -> Dict:
+    try:
+        metrics = estimate_elixir_from_frame(
+            frame_bgr,
+            elixir_roi_pixels=elixir_roi_pixels,
+            purple_h_min=purple_h_min,
+            purple_h_max=purple_h_max,
+            purple_s_min=purple_s_min,
+            purple_v_min=purple_v_min,
+            col_fill_ratio_th=col_fill_ratio_th,
+            min_purple_ratio=min_purple_ratio,
+            max_holes_ratio=max_holes_ratio,
+            allow_empty=allow_empty,
+            empty_purple_ratio_max=empty_purple_ratio_max,
+            empty_mean_s_max=empty_mean_s_max,
+        )
+    except ValueError as exc:
+        warn_fn(f"elixir estimation failed: {exc}")
+        return {**record, "elixir": -1, "elixir_frac": -1.0}
+
+    return {
+        **record,
+        "elixir": int(metrics["elixir"]),
+        "elixir_frac": float(metrics["elixir_frac"]),
     }

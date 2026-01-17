@@ -91,6 +91,30 @@ def normalize_hand_card_ids(value: object, n_slots: int = 4) -> List[int] | None
     return normalized
 
 
+def normalize_elixir(value: object) -> int | None:
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError):
+        return None
+    if ivalue == -1:
+        return -1
+    if 0 <= ivalue <= 10:
+        return ivalue
+    return None
+
+
+def normalize_elixir_frac(value: object) -> float | None:
+    try:
+        fvalue = float(value)
+    except (TypeError, ValueError):
+        return None
+    if fvalue == -1.0:
+        return -1.0
+    if 0.0 <= fvalue <= 10.0:
+        return fvalue
+    return None
+
+
 def build_allowed_card_ids(
     hand_available: List[int] | None,
     hand_card_ids: List[int] | None,
@@ -443,6 +467,8 @@ def main() -> int:
     state_path = os.path.join(args.data_dir, record["state_path"])
     hand_available = normalize_hand_available(record.get("hand_available"))
     hand_card_ids = normalize_hand_card_ids(record.get("hand_card_ids"))
+    elixir = normalize_elixir(record.get("elixir"))
+    elixir_frac = normalize_elixir_frac(record.get("elixir_frac"))
     hand_available_source = "record" if hand_available is not None else None
     hand_card_ids_source = "record" if hand_card_ids is not None else None
 
@@ -494,10 +520,16 @@ def main() -> int:
     if hand_card_ids is None:
         hand_card_ids = [-1, -1, -1, -1]
         hand_card_ids_source = "default"
+    if elixir is None:
+        elixir = -1
+        warn("elixir missing; using -1")
+    if elixir_frac is None:
+        elixir_frac = -1.0
     if hand_available_source == "default":
         warn("hand_available missing; using zeros")
     if hand_card_ids_source == "default" and not args.disable_hand_card_mask:
         warn("hand_card_ids missing; card mask will exclude card actions")
+    print(f"elixir={elixir} elixir_frac={elixir_frac:.2f}")
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
 
     if two_frame:
