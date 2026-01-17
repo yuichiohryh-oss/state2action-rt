@@ -181,21 +181,21 @@ Top-k 行動提案（hand_* による action mask を適用）
 
 * scrcpy 330x752：固定 pixel ROI（デフォルト）
 
-  * x1=80, x2=300, y1=604, y2=620
+  * x1=40, x2=320, y1=712, y2=745
 * 実動画によりズレるため、inspect_elixir.py で目視確認・調整する
 * CLI override（--elixir-roi-x1/x2/y1/y2）を用意
 
 ### 指標
 
-* `elixir_frac` : 0.0–1.0（バーの塗り割合）
-* `elixir` : 0–10 の整数値（`round(elixir_frac * 10)` を clamp）
+* `elixir_frac` : 0.0–10.0（バー塗りの推定値。fill_ratio * 10）
+* `elixir` : 0–10 の整数値（`round(elixir_frac)` を clamp）
 * 欠損時：`elixir = -1`, `elixir_frac = -1.0`
 
 ### データ表現
 
 ```json
 "elixir": 7,
-"elixir_frac": 0.72
+"elixir_frac": 7.2
 ```
 
 * 学習時：数値特徴量として使用（hand_* より優先度は低い）

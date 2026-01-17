@@ -8,7 +8,7 @@ import numpy as np
 ElixirRoiPixels = Tuple[int | None, int | None, int | None, int | None]
 
 # Approximate default for scrcpy 330x752; adjust via tools/inspect_elixir.py.
-DEFAULT_ELIXIR_ROI_330x752 = (80, 604, 300, 620)
+DEFAULT_ELIXIR_ROI_330x752 = (40, 712, 320, 745)
 
 
 def compute_elixir_roi_rect(
