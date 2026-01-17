@@ -88,6 +88,10 @@ def main() -> int:
         help="Optional directory of hand card templates (enables hand_card_ids)",
     )
     parser.add_argument("--hand-card-min-score", type=float, default=0.6, help="Min template score for card id")
+    parser.add_argument("--hand-roi-x1", type=int, default=None, help="Hand ROI x1 in pixels")
+    parser.add_argument("--hand-roi-x2", type=int, default=None, help="Hand ROI x2 in pixels")
+    parser.add_argument("--hand-roi-y1", type=int, default=None, help="Hand ROI y1 in pixels")
+    parser.add_argument("--hand-roi-y2", type=int, default=None, help="Hand ROI y2 in pixels")
 
     args = parser.parse_args()
 
@@ -125,6 +129,12 @@ def main() -> int:
             hand_x_margin_ratio=args.hand_x_margin_ratio,
             hand_templates_dir=args.hand_templates_dir,
             hand_card_min_score=args.hand_card_min_score,
+            hand_roi_pixels=(
+                args.hand_roi_x1,
+                args.hand_roi_x2,
+                args.hand_roi_y1,
+                args.hand_roi_y2,
+            ),
         )
     finally:
         if frame_source.close:

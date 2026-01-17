@@ -9,8 +9,8 @@ import cv2
 
 from .frame_source import FrameSource
 from .grid import xy_to_grid_id
-from .hand_cards import HandCardTemplate, infer_hand_card_ids_from_frame, load_hand_card_templates
-from .hand_features import hand_available_from_frame
+from .hand_cards import HandCardTemplate
+from .hand_features import HandRoiPixels, hand_available_from_frame, hand_state_from_frame, load_hand_templates
 from .roi import RoiConfig, detect_roi, make_state_image
 
 
@@ -50,6 +50,7 @@ def build_dataset(
     hand_templates_dir: str | None = None,
     hand_card_min_score: float = 0.6,
     hand_template_size: Tuple[int, int] = (64, 64),
+    hand_roi_pixels: HandRoiPixels | None = None,
 ) -> List[Dict]:
     os.makedirs(out_dir, exist_ok=True)
     frames_dir = os.path.join(out_dir, "state_frames")
@@ -57,7 +58,9 @@ def build_dataset(
 
     templates: List[HandCardTemplate] = []
     if hand_templates_dir:
-        templates = load_hand_card_templates(hand_templates_dir, template_size=hand_template_size)
+        templates = load_hand_templates(hand_templates_dir, hand_template_size)
+        if not templates:
+            warn_fn(f"no hand templates loaded from {hand_templates_dir}")
 
     records: List[Dict] = []
     for idx, event in enumerate(events):
@@ -111,28 +114,20 @@ def build_dataset(
                 "fps_effective": float(frame_source.fps),
             },
         }
-        record = with_hand_available(
+        record = with_hand_features(
             record,
             frame,
+            templates=templates,
             s_th=hand_s_th,
+            min_score=hand_card_min_score,
             y1_ratio=hand_y1_ratio,
             y2_ratio=hand_y2_ratio,
             x_margin_ratio=hand_x_margin_ratio,
+            n_slots=4,
+            template_size=hand_template_size,
+            hand_roi_pixels=hand_roi_pixels,
+            warn_fn=warn_fn,
         )
-        if templates:
-            record = with_hand_card_ids(
-                record,
-                frame,
-                templates,
-                min_score=hand_card_min_score,
-                s_th=hand_s_th,
-                y1_ratio=hand_y1_ratio,
-                y2_ratio=hand_y2_ratio,
-                x_margin_ratio=hand_x_margin_ratio,
-                n_slots=4,
-                template_size=hand_template_size,
-                warn_fn=warn_fn,
-            )
         records.append(record)
 
     dataset_path = os.path.join(out_dir, "dataset.jsonl")
@@ -162,7 +157,7 @@ def with_hand_available(
     return {**record, "hand_available": [int(v) for v in avail_list]}
 
 
-def with_hand_card_ids(
+def with_hand_features(
     record: Dict,
     frame_bgr: np.ndarray,
     templates: List[HandCardTemplate],
@@ -173,21 +168,46 @@ def with_hand_card_ids(
     x_margin_ratio: float,
     n_slots: int,
     template_size: Tuple[int, int],
+    hand_roi_pixels: HandRoiPixels | None,
     warn_fn: Callable[[str], None],
 ) -> Dict:
     try:
-        card_ids = infer_hand_card_ids_from_frame(
+        state = hand_state_from_frame(
             frame_bgr,
-            templates,
-            min_score=min_score,
+            templates=templates,
             s_th=s_th,
+            min_score=min_score,
             y1_ratio=y1_ratio,
             y2_ratio=y2_ratio,
             x_margin_ratio=x_margin_ratio,
             n_slots=n_slots,
             template_size=template_size,
+            hand_roi_pixels=hand_roi_pixels,
         )
     except ValueError as exc:
-        warn_fn(f"hand_card_ids failed: {exc}")
+        warn_fn(f"hand_features failed: {exc}")
+        return {
+            **record,
+            "hand_available": [1 for _ in range(n_slots)],
+            "hand_card_ids": [-1 for _ in range(n_slots)],
+            "hand_scores": [0.0 for _ in range(n_slots)],
+        }
+
+    available = [int(v) for v in state["available"]]
+    if not templates:
         card_ids = [-1 for _ in range(n_slots)]
-    return {**record, "hand_card_ids": [int(v) for v in card_ids]}
+        scores = [0.0 for _ in range(n_slots)]
+    else:
+        card_ids = [int(v) for v in state["card_ids"]]
+        scores = [float(v) for v in state["scores"]]
+        for i, is_available in enumerate(available):
+            if not is_available:
+                card_ids[i] = -1
+                scores[i] = 0.0
+
+    return {
+        **record,
+        "hand_available": available,
+        "hand_card_ids": card_ids,
+        "hand_scores": scores,
+    }
