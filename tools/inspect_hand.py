@@ -8,7 +8,7 @@ import numpy as np
 
 from state2action_rt.frame_source import VideoFrameSource
 from state2action_rt.hand_cards import HandCardTemplate, load_hand_card_templates
-from state2action_rt.hand_features import hand_available_from_frame
+from state2action_rt.hand_features import mean_saturation, split_hand_slots
 
 
 def warn(msg: str) -> None:
@@ -52,6 +52,58 @@ def match_slot_to_templates(
     if best_score < min_score:
         return -1, float(best_score)
     return best_id, float(best_score)
+
+
+def compute_hand_roi_rect(
+    frame_bgr: np.ndarray,
+    y1_ratio: float,
+    y2_ratio: float,
+    x_margin_ratio: float,
+    hand_roi_pixels: tuple[int | None, int | None, int | None, int | None],
+) -> tuple[int, int, int, int]:
+    h, w = frame_bgr.shape[:2]
+    x1_px, x2_px, y1_px, y2_px = hand_roi_pixels
+    if any(value is not None for value in hand_roi_pixels):
+        if not all(value is not None for value in hand_roi_pixels):
+            raise ValueError("hand ROI override requires x1/x2/y1/y2")
+        x1 = int(x1_px)
+        x2 = int(x2_px)
+        y1 = int(y1_px)
+        y2 = int(y2_px)
+    else:
+        x_margin = int(w * x_margin_ratio)
+        x1 = x_margin
+        x2 = w - x_margin
+        y1 = int(h * y1_ratio)
+        y2 = int(h * y2_ratio)
+    x1 = max(0, min(w - 1, x1))
+    x2 = max(0, min(w, x2))
+    y1 = max(0, min(h - 1, y1))
+    y2 = max(0, min(h, y2))
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError("hand ROI is empty")
+    return x1, y1, x2, y2
+
+
+def crop_match_roi(
+    slot_bgr: np.ndarray,
+    side_cut_ratio: float = 0.10,
+    bottom_cut_ratio: float = 0.25,
+) -> np.ndarray:
+    h, w = slot_bgr.shape[:2]
+    if h < 1 or w < 1:
+        return slot_bgr
+    x_margin = int(round(w * side_cut_ratio))
+    y_cut = int(round(h * bottom_cut_ratio))
+    x1 = max(0, x_margin)
+    x2 = min(w, w - x_margin)
+    y2 = min(h, h - y_cut)
+    if x2 <= x1 or y2 <= 0:
+        return slot_bgr
+    match_roi = slot_bgr[:y2, x1:x2]
+    if match_roi.size == 0:
+        return slot_bgr
+    return match_roi
 
 
 def iter_slot_rects(hand_bgr: np.ndarray, n_slots: int) -> list[tuple[int, int, int, int]]:
@@ -146,6 +198,15 @@ def main() -> int:
         help="Save full frame images in addition to hand ROI/slots",
     )
     parser.add_argument(
+        "--debug-roi-overlay",
+        action="store_true",
+        help="Save full-frame ROI overlay with hand/slot boxes",
+    )
+    parser.add_argument("--hand-roi-x1", type=int, default=None, help="Hand ROI x1 in pixels")
+    parser.add_argument("--hand-roi-x2", type=int, default=None, help="Hand ROI x2 in pixels")
+    parser.add_argument("--hand-roi-y1", type=int, default=None, help="Hand ROI y1 in pixels")
+    parser.add_argument("--hand-roi-y2", type=int, default=None, help="Hand ROI y2 in pixels")
+    parser.add_argument(
         "--write-csv",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -199,26 +260,50 @@ def main() -> int:
             if frame is None:
                 break
 
-            mean_s_list, avail_list, hand_bgr, slots = hand_available_from_frame(
-                frame,
-                s_th=args.s_th,
-                x_margin_ratio=args.x_margin_ratio,
-                n_slots=4,
+            hand_roi_pixels = (
+                args.hand_roi_x1,
+                args.hand_roi_x2,
+                args.hand_roi_y1,
+                args.hand_roi_y2,
             )
+            try:
+                hand_x1, hand_y1, hand_x2, hand_y2 = compute_hand_roi_rect(
+                    frame,
+                    y1_ratio=0.90,
+                    y2_ratio=0.97,
+                    x_margin_ratio=args.x_margin_ratio,
+                    hand_roi_pixels=hand_roi_pixels,
+                )
+            except ValueError as exc:
+                warn(f"invalid hand ROI: {exc}")
+                return 1
+
+            hand_bgr = frame[hand_y1:hand_y2, hand_x1:hand_x2]
+            slots = split_hand_slots(hand_bgr, n_slots=4)
 
             hand_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_hand.png")
             cv2.imwrite(hand_path, hand_bgr)
             overlay = hand_bgr.copy()
+            full_overlay = frame.copy() if args.debug_roi_overlay else None
             rects = iter_slot_rects(hand_bgr, n_slots=4)
+            if full_overlay is not None:
+                cv2.rectangle(
+                    full_overlay,
+                    (hand_x1, hand_y1),
+                    (hand_x2 - 1, hand_y2 - 1),
+                    (0, 200, 200),
+                    2,
+                )
             for i, slot in enumerate(slots):
                 slot_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_slot{i}.png")
                 cv2.imwrite(slot_path, slot)
 
-                mean_s = mean_s_list[i]
-                available = bool(avail_list[i])
+                match_roi = crop_match_roi(slot)
+                mean_s = mean_saturation(match_roi)
+                available = mean_s > args.s_th
                 if available:
                     card_id, score = match_slot_to_templates(
-                        slot,
+                        match_roi,
                         templates,
                         template_size=args.hand_template_size,
                         min_score=args.hand_card_min_score,
@@ -229,6 +314,12 @@ def main() -> int:
                 x1, y1, x2, y2 = rects[i]
                 color = (0, 200, 0) if available else (40, 40, 200)
                 cv2.rectangle(overlay, (x1, y1), (x2 - 1, y2 - 1), color, 1)
+                if full_overlay is not None:
+                    fx1 = hand_x1 + x1
+                    fy1 = hand_y1 + y1
+                    fx2 = hand_x1 + x2
+                    fy2 = hand_y1 + y2
+                    cv2.rectangle(full_overlay, (fx1, fy1), (fx2 - 1, fy2 - 1), color, 1)
                 base_x = x1 + 3
                 base_y = y1 + 12
                 line_h = 12
@@ -264,6 +355,11 @@ def main() -> int:
             if args.save_full:
                 full_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_full.png")
                 cv2.imwrite(full_path, frame)
+            if full_overlay is not None:
+                full_overlay_path = os.path.join(
+                    args.out_dir, f"frame_{frame_idx:06d}_full_roi_overlay.png"
+                )
+                cv2.imwrite(full_overlay_path, full_overlay)
 
             overlay_path = os.path.join(
                 args.out_dir, f"frame_{frame_idx:06d}_hand_overlay.png"
