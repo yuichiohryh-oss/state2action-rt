@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import cv2
 import numpy as np
 
 from state2action_rt.hand_features import (
@@ -80,3 +83,20 @@ def test_hand_state_from_frame_empty_templates():
 
     assert state["available"] == [1, 1, 1, 1]
     assert state["card_ids"] == [-1, -1, -1, -1]
+
+
+def test_hand_state_from_frame_schema_with_scrcpy_asset():
+    asset_path = Path(__file__).resolve().parent / "assets" / "hand_330x752.png"
+    frame = cv2.imread(str(asset_path), cv2.IMREAD_COLOR)
+    assert frame is not None
+
+    state = hand_state_from_frame(
+        frame,
+        templates=[],
+        s_th=30.0,
+        min_score=0.6,
+    )
+
+    assert state["hand_roi"].shape[:2] == (50, 243)
+    for key in ("available", "card_ids", "scores", "mean_s", "slot_rois", "match_rois"):
+        assert len(state[key]) == 4

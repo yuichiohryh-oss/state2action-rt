@@ -263,6 +263,23 @@ def build_candidates(
     return candidates[:topk]
 
 
+def ensure_candidates_with_noop(
+    candidates: List[Tuple[float, int, float, int, float]],
+    card_probs: torch.Tensor,
+    noop_idx: int | None,
+    disable_hand_card_mask: bool,
+    warn_fn=warn,
+) -> List[Tuple[float, int, float, int, float]]:
+    if candidates or disable_hand_card_mask:
+        return candidates
+    if noop_idx is None:
+        if warn_fn is not None:
+            warn_fn("hand mask removed all candidates and __NOOP__ is missing")
+        return candidates
+    noop_prob = float(card_probs[noop_idx].item())
+    return [(noop_prob, noop_idx, noop_prob, -1, 0.0)]
+
+
 def render_overlay(
     data_dir: str,
     record: dict,
@@ -553,12 +570,12 @@ def main() -> int:
         args.exclude_noop,
         valid_action_indices=valid_action_indices,
     )
-    if not top_candidates and not args.disable_hand_card_mask:
-        if noop_idx is None:
-            warn("hand mask removed all candidates and __NOOP__ is missing")
-        else:
-            noop_prob = float(card_probs[noop_idx].item())
-            top_candidates = [(noop_prob, noop_idx, noop_prob, -1, 0.0)]
+    top_candidates = ensure_candidates_with_noop(
+        top_candidates,
+        card_probs,
+        noop_idx,
+        args.disable_hand_card_mask,
+    )
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
