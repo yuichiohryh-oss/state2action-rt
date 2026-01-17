@@ -442,6 +442,17 @@ python tools\\build_dataset.py `
 この方法は、エリクサー量を直接数値認識するよりも実装が簡単かつ頑健であり、
 行動制約を表現するうえで本質的な情報を捉えられます。
 
+## GPU (CUDA 12.8 / cu128) で PyTorch Nightly を使う場合
+
+PowerShell:
+
+```powershell
+pip uninstall -y torch torchvision torchaudio
+python -m pip install -U pip
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+```
+
 ## Status
 
 詳細は PROJECT_STATE.md を参照。
