@@ -172,8 +172,11 @@ Top-k 行動提案
 ### 実装仕様
 
 * 手札 ROI：画面下端 **90–97%**
+* 330x752 (scrcpy): fixed pixel ROI x1=75, x2=318, y1=630, y2=680
+* Other resolutions: ratio fallback (y1=0.90, y2=0.97, x_margin_ratio)
+* CLI override (--hand-roi-x1/x2/y1/y2) takes priority
 * 横方向に 4 分割（4 スロット）
-* availability 判定は slot 内側を切り出して mean_S を算出（UI 混入回避）
+* availability uses slot inner-crop (same ROI as template match) for mean_S to avoid UI bleed.
 * HSV 色空間で **彩度（S）平均**を算出
 
 | 判定   | 条件           |

@@ -70,6 +70,8 @@ def compute_hand_roi_rect(
         x2 = int(x2_px)
         y1 = int(y1_px)
         y2 = int(y2_px)
+    elif w == 330 and h == 752:
+        x1, x2, y1, y2 = 75, 318, 630, 680
     else:
         x_margin = int(w * x_margin_ratio)
         x1 = x_margin

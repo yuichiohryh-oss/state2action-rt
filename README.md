@@ -127,9 +127,13 @@ python tools/inspect_hand.py \
   --start-sec 0 \
   --end-sec -1
 ```
+Hand ROI defaults:
+- 330x752 (scrcpy) uses fixed pixels: x1=75, x2=318, y1=630, y2=680.
+- Other resolutions fall back to ratio (y1=0.90, y2=0.97, x-margin ratio).
+- Override with --hand-roi-x1/x2/y1/y2 (all four required).
 `out/hand_debug/summary.csv` is one row per slot with columns:
 `frame_idx,time_sec,slot,mean_s,available,card_id,score`
-Use `--debug-roi-overlay` to verify ROI/slot boxes on full frames and `--save-full` to keep full-frame images for context.
+Use `--debug-roi-overlay` to write `frame_*_full_roi_overlay.png` and `--save-full` to keep `frame_*_full.png` for context.
 
 ## No-op augmentation
 To reduce unnecessary actions, you can augment the dataset with explicit "__NOOP__" samples. This adds records where the model should output "do nothing" for a given state.
