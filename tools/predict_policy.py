@@ -313,7 +313,11 @@ def render_overlay(
     gh: int,
     out_path: str,
 ) -> None:
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    out_path_value = out_path
+    if out_path:
+        out_path_obj = Path(out_path)
+        out_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        out_path_value = str(out_path_obj)
     state_path = os.path.join(data_dir, record["state_path"])
     state_img = cv2.imread(state_path, cv2.IMREAD_COLOR)
     if state_img is None:
@@ -331,7 +335,7 @@ def render_overlay(
     sy2 = int(round((cell[3] - roi[1]) * scale_y))
 
     cv2.rectangle(state_img, (sx1, sy1), (sx2, sy2), (0, 255, 0), 2)
-    ok = cv2.imwrite(out_path, state_img)
+    ok = cv2.imwrite(out_path_value, state_img)
     if not ok:
         raise RuntimeError("failed to write overlay image")
 
