@@ -127,8 +127,9 @@ python tools/inspect_hand.py \
   --start-sec 0 \
   --end-sec -1
 ```
-`out/hand_debug/summary.csv` columns:
-`t_sec,frame_idx,mean_s0,mean_s1,mean_s2,mean_s3,avail0,avail1,avail2,avail3`
+`out/hand_debug/summary.csv` is one row per slot with columns:
+`frame_idx,time_sec,slot,mean_s,available,card_id,score`
+Use `--debug-roi-overlay` to verify ROI/slot boxes on full frames and `--save-full` to keep full-frame images for context.
 
 ## No-op augmentation
 To reduce unnecessary actions, you can augment the dataset with explicit "__NOOP__" samples. This adds records where the model should output "do nothing" for a given state.
