@@ -109,3 +109,22 @@ def test_apply_action_mask_keeps_allowed_and_exempt() -> None:
             assert torch.isclose(masked[idx], torch.tensor(-1e9))
     assert torch.isclose(masked[8], torch.tensor(0.0))
     assert torch.isclose(masked[9], torch.tensor(0.0))
+
+
+def test_build_candidates_respects_valid_action_indices() -> None:
+    vocab = ActionVocab(["__NOOP__", "action_1", "action_2"])
+    card_probs = torch.tensor([0.1, 0.9, 0.8])
+    grid_probs = torch.tensor([0.6, 0.4])
+
+    candidates = predict_policy.build_candidates(
+        card_probs,
+        grid_probs,
+        vocab,
+        topk=3,
+        score_mode="mul",
+        exclude_noop=True,
+        valid_action_indices={2},
+    )
+
+    assert candidates
+    assert all(candidate[1] == 2 for candidate in candidates)
