@@ -34,6 +34,8 @@ def test_build_dataset_single_record(tmp_path):
     assert records[0]["hand_available"] == [0, 0, 0, 0]
     assert records[0]["hand_card_ids"] == [-1, -1, -1, -1]
     assert records[0]["hand_scores"] == [0.0, 0.0, 0.0, 0.0]
+    assert records[0]["elixir"] == -1
+    assert records[0]["elixir_frac"] == -1.0
 
     dataset_path = out_dir / "dataset.jsonl"
     with open(dataset_path, "r", encoding="utf-8") as f:
@@ -46,6 +48,8 @@ def test_build_dataset_single_record(tmp_path):
     assert data[0]["hand_available"] == [0, 0, 0, 0]
     assert data[0]["hand_card_ids"] == [-1, -1, -1, -1]
     assert data[0]["hand_scores"] == [0.0, 0.0, 0.0, 0.0]
+    assert data[0]["elixir"] == -1
+    assert data[0]["elixir_frac"] == -1.0
 
 
 def test_with_hand_available_pure_function():

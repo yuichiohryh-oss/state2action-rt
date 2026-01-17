@@ -92,6 +92,70 @@ def main() -> int:
     parser.add_argument("--hand-roi-x2", type=int, default=None, help="Hand ROI x2 in pixels")
     parser.add_argument("--hand-roi-y1", type=int, default=None, help="Hand ROI y1 in pixels")
     parser.add_argument("--hand-roi-y2", type=int, default=None, help="Hand ROI y2 in pixels")
+    parser.add_argument("--elixir-roi-x1", type=int, default=None, help="Elixir ROI x1 in pixels")
+    parser.add_argument("--elixir-roi-x2", type=int, default=None, help="Elixir ROI x2 in pixels")
+    parser.add_argument("--elixir-roi-y1", type=int, default=None, help="Elixir ROI y1 in pixels")
+    parser.add_argument("--elixir-roi-y2", type=int, default=None, help="Elixir ROI y2 in pixels")
+    parser.add_argument(
+        "--elixir-purple-h-min",
+        type=int,
+        default=120,
+        help="Elixir purple hue min (HSV)",
+    )
+    parser.add_argument(
+        "--elixir-purple-h-max",
+        type=int,
+        default=170,
+        help="Elixir purple hue max (HSV)",
+    )
+    parser.add_argument(
+        "--elixir-purple-s-min",
+        type=int,
+        default=60,
+        help="Elixir purple saturation min (HSV)",
+    )
+    parser.add_argument(
+        "--elixir-purple-v-min",
+        type=int,
+        default=40,
+        help="Elixir purple value min (HSV)",
+    )
+    parser.add_argument(
+        "--elixir-col-fill-ratio-th",
+        type=float,
+        default=0.35,
+        help="Elixir column purple ratio threshold",
+    )
+    parser.add_argument(
+        "--elixir-min-purple-ratio",
+        type=float,
+        default=0.01,
+        help="Elixir minimum purple ratio",
+    )
+    parser.add_argument(
+        "--elixir-max-holes-ratio",
+        type=float,
+        default=0.6,
+        help="Elixir max holes ratio before unstable",
+    )
+    parser.add_argument(
+        "--elixir-allow-empty",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow empty elixir bar detection",
+    )
+    parser.add_argument(
+        "--elixir-empty-purple-ratio-max",
+        type=float,
+        default=0.002,
+        help="Elixir max purple ratio to treat as empty",
+    )
+    parser.add_argument(
+        "--elixir-empty-mean-s-max",
+        type=float,
+        default=80.0,
+        help="Elixir max mean saturation to treat as empty",
+    )
 
     args = parser.parse_args()
 
@@ -135,6 +199,22 @@ def main() -> int:
                 args.hand_roi_y1,
                 args.hand_roi_y2,
             ),
+            elixir_roi_pixels=(
+                args.elixir_roi_x1,
+                args.elixir_roi_x2,
+                args.elixir_roi_y1,
+                args.elixir_roi_y2,
+            ),
+            elixir_purple_h_min=args.elixir_purple_h_min,
+            elixir_purple_h_max=args.elixir_purple_h_max,
+            elixir_purple_s_min=args.elixir_purple_s_min,
+            elixir_purple_v_min=args.elixir_purple_v_min,
+            elixir_col_fill_ratio_th=args.elixir_col_fill_ratio_th,
+            elixir_min_purple_ratio=args.elixir_min_purple_ratio,
+            elixir_max_holes_ratio=args.elixir_max_holes_ratio,
+            elixir_allow_empty=args.elixir_allow_empty,
+            elixir_empty_purple_ratio_max=args.elixir_empty_purple_ratio_max,
+            elixir_empty_mean_s_max=args.elixir_empty_mean_s_max,
         )
     finally:
         if frame_source.close:
