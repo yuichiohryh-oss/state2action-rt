@@ -127,6 +127,10 @@ python tools/inspect_hand.py \
   --start-sec 0 \
   --end-sec -1
 ```
+Hand ROI defaults:
+- 330x752 (scrcpy) uses fixed pixels: x1=75, x2=318, y1=630, y2=680.
+- Other resolutions fall back to ratio (y1=0.90, y2=0.97, x-margin ratio).
+- Override with --hand-roi-x1/x2/y1/y2 (all four required).
 `out/hand_debug/summary.csv` columns:
 `t_sec,frame_idx,mean_s0,mean_s1,mean_s2,mean_s3,avail0,avail1,avail2,avail3`
 
