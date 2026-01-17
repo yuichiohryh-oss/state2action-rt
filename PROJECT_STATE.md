@@ -20,6 +20,7 @@
   - 盤面 ROI 切り出し
   - フレーム整列（current / past / diff）
   - 手札特徴抽出（hand_available / hand_card_ids / hand_scores）
+  - エリクサー特徴抽出（elixir / elixir_frac）
    ↓
 入力テンソル [9,256,256] + 数値特徴
    ↓
@@ -168,12 +169,37 @@ Top-k 行動提案（hand_* による action mask を適用）
 
 ---
 
-## エリクサ推定（画像処理）
+## エリクサー特徴（導入済み・優先度：高）
 
-* **学習なし（画像処理のみ）**で elixir を推定
-* scrcpy 330x752 は **pixel ROI 固定**（x1=80, x2=300, y1=604, y2=620）
-* その他解像度は ratio fallback
-* 不明・不安定時は **elixir=-1**（安全側）
+### 方針
+
+* OCR は用いず、**エリクサーバーの塗り割合を画像処理で推定**する
+* dataset / inspect / 推論で **同一ロジック（elixir_features）を使用**
+* 推定に失敗した場合は **安全側（-1）** として扱う
+
+### ROI 仕様
+
+* scrcpy 330x752：固定 pixel ROI（デフォルト）
+
+  * x1=80, x2=300, y1=604, y2=620
+* 実動画によりズレるため、inspect_elixir.py で目視確認・調整する
+* CLI override（--elixir-roi-x1/x2/y1/y2）を用意
+
+### 指標
+
+* `elixir_frac` : 0.0–1.0（バーの塗り割合）
+* `elixir` : 0–10 の整数値（`round(elixir_frac * 10)` を clamp）
+* 欠損時：`elixir = -1`, `elixir_frac = -1.0`
+
+### データ表現
+
+```json
+"elixir": 7,
+"elixir_frac": 0.72
+```
+
+* 学習時：数値特徴量として使用（hand_* より優先度は低い）
+* 推論時：現状は **ログ出力のみ**。将来 action mask への利用を検討
 
 ---
 
