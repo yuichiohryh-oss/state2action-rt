@@ -234,7 +234,7 @@ def main() -> int:
     try:
         if args.write_csv:
             is_new = not os.path.exists(summary_path)
-            csv_file = open(summary_path, "a", encoding="utf-8")
+            csv_file = open(summary_path, "a", encoding="utf-8", newline="")
             csv_writer = csv.writer(csv_file)
             if is_new:
                 csv_writer.writerow(

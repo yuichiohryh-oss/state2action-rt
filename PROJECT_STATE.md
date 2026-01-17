@@ -176,6 +176,7 @@ Top-k 行動提案
 * Other resolutions: ratio fallback (y1=0.90, y2=0.97, x_margin_ratio)
 * CLI override (--hand-roi-x1/x2/y1/y2) takes priority
 * 横方向に 4 分割（4 スロット）
+* availability uses slot inner-crop (same ROI as template match) for mean_S to avoid UI bleed.
 * HSV 色空間で **彩度（S）平均**を算出
 
 | 判定   | 条件           |
