@@ -128,3 +128,44 @@ def test_build_candidates_respects_valid_action_indices() -> None:
 
     assert candidates
     assert all(candidate[1] == 2 for candidate in candidates)
+
+
+def test_hand_mask_drops_unavailable_card_id() -> None:
+    vocab = ActionVocab(["__NOOP__", "card_2", "card_3", "card_5", "card_7"])
+    hand_available = [1, 1, 1, 1]
+    hand_card_ids = [3, 7, -1, 2]
+    allowed = predict_policy.build_allowed_card_ids(hand_available, hand_card_ids)
+    mapping = predict_policy.build_card_id_to_action_idx_map(vocab)
+
+    logits = torch.zeros(len(vocab.id_to_action))
+    masked = predict_policy.apply_action_mask(
+        logits,
+        allowed_card_ids=allowed,
+        noop_idx=vocab.action_to_id["__NOOP__"],
+        skill_idx=None,
+        card_id_to_action_idx_map=mapping,
+    )
+
+    assert torch.isclose(masked[mapping[5]], torch.tensor(-1e9))
+    for card_id in (2, 3, 7):
+        assert torch.isclose(masked[mapping[card_id]], torch.tensor(0.0))
+
+
+def test_fallback_to_noop_when_candidates_empty() -> None:
+    vocab = ActionVocab(["__NOOP__", "card_5"])
+    card_probs = torch.tensor([0.7, 0.3])
+    noop_idx = vocab.action_to_id["__NOOP__"]
+    candidates = predict_policy.ensure_candidates_with_noop(
+        [],
+        card_probs,
+        noop_idx,
+        disable_hand_card_mask=False,
+    )
+
+    assert candidates
+    score, action_idx, card_prob, grid_idx, grid_prob = candidates[0]
+    assert action_idx == noop_idx
+    assert grid_idx == -1
+    assert grid_prob == 0.0
+    assert math.isclose(score, float(card_probs[noop_idx].item()))
+    assert math.isclose(card_prob, float(card_probs[noop_idx].item()))
