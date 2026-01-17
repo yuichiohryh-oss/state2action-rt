@@ -332,6 +332,7 @@ def main() -> int:
                     frame_bgr,
                     templates,
                     min_score=args.hand_card_min_score,
+                    s_th=args.hand_s_th,
                     y1_ratio=args.hand_y1_ratio,
                     y2_ratio=args.hand_y2_ratio,
                     x_margin_ratio=args.hand_x_margin_ratio,

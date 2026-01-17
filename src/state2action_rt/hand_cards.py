@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .hand_features import compute_hand_roi, split_hand_slots
+from .hand_features import hand_state_from_frame
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp"}
 
@@ -91,12 +91,19 @@ def infer_hand_card_ids_from_frame(
     x_margin_ratio: float = 0.03,
     n_slots: int = 4,
     template_size: Tuple[int, int] = (64, 64),
+    s_th: float = 30.0,
+    hand_roi_pixels: Tuple[int | None, int | None, int | None, int | None] | None = None,
 ) -> List[int]:
-    hand_bgr = compute_hand_roi(
+    state = hand_state_from_frame(
         frame_bgr,
+        templates=templates,
+        s_th=s_th,
+        min_score=min_score,
         y1_ratio=y1_ratio,
         y2_ratio=y2_ratio,
         x_margin_ratio=x_margin_ratio,
+        n_slots=n_slots,
+        template_size=template_size,
+        hand_roi_pixels=hand_roi_pixels,
     )
-    slots = split_hand_slots(hand_bgr, n_slots=n_slots)
-    return match_hand_cards(slots, templates, min_score=min_score, template_size=template_size)
+    return [int(card_id) for card_id in state["card_ids"]]
