@@ -233,8 +233,14 @@ def main() -> int:
                 base_y = y1 + 12
                 line_h = 12
                 draw_text(overlay, f"slot {i}", base_x, base_y, color)
-                draw_text(overlay, f"avail {int(available)}", base_x, base_y + line_h, color)
-                draw_text(overlay, f"card {card_id}", base_x, base_y + line_h * 2, color)
+                draw_text(
+                    overlay,
+                    f"available {int(available)}",
+                    base_x,
+                    base_y + line_h,
+                    color,
+                )
+                draw_text(overlay, f"card_id {card_id}", base_x, base_y + line_h * 2, color)
                 draw_text(overlay, f"score {score:.2f}", base_x, base_y + line_h * 3, color)
                 draw_text(overlay, f"mean_s {mean_s:.2f}", base_x, base_y + line_h * 4, color)
 
