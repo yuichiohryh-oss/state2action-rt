@@ -278,3 +278,19 @@ Top-k 行動提案
 * プロの判断を高頻度で再現する提案 AI
 * 単独でプロに勝つことより
   **「プロと組んで戦う感覚」** を目指す
+
+## カード番号
+
+```
+templates/hand_cards/
+  0_cannon.png
+  1_cannon_evo.png
+  2_fireball.png
+  3_hog.png
+  4_icegolem.png
+  5_ice_spirit.png
+  6_log.png
+  7_musketeer.png
+  8_skeletons.png
+  9_skeletons_evo.png
+```
