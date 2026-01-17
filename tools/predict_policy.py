@@ -44,9 +44,114 @@ def load_checkpoint(path: str, device: torch.device) -> dict:
     return torch.load(path, map_location=device)
 
 
-def topk_probs(probs: torch.Tensor, k: int) -> Tuple[List[int], List[float]]:
-    values, indices = torch.topk(probs, k)
-    return indices.tolist(), values.tolist()
+def topk_probs(
+    probs: torch.Tensor,
+    k: int,
+    allowed_indices: List[int] | None = None,
+) -> Tuple[List[int], List[float]]:
+    if k <= 0:
+        return [], []
+    if allowed_indices is None:
+        values, indices = torch.topk(probs, k)
+        return indices.tolist(), values.tolist()
+    if not allowed_indices:
+        return [], []
+    allowed = torch.tensor(allowed_indices, device=probs.device, dtype=torch.long)
+    allowed_probs = probs.index_select(0, allowed)
+    k = min(k, int(allowed_probs.numel()))
+    if k <= 0:
+        return [], []
+    values, indices = torch.topk(allowed_probs, k)
+    resolved = [allowed_indices[i] for i in indices.tolist()]
+    return resolved, values.tolist()
+
+
+def normalize_hand_available(value: object, n_slots: int = 4) -> List[int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != n_slots:
+        return None
+    normalized: List[int] = []
+    for item in value:
+        try:
+            ivalue = int(item)
+        except (TypeError, ValueError):
+            return None
+        normalized.append(1 if ivalue != 0 else 0)
+    return normalized
+
+
+def normalize_hand_card_ids(value: object, n_slots: int = 4) -> List[int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != n_slots:
+        return None
+    normalized: List[int] = []
+    for item in value:
+        try:
+            normalized.append(int(item))
+        except (TypeError, ValueError):
+            return None
+    return normalized
+
+
+def build_allowed_card_ids(
+    hand_available: List[int] | None,
+    hand_card_ids: List[int] | None,
+) -> set[int]:
+    if not hand_available or not hand_card_ids:
+        return set()
+    allowed: set[int] = set()
+    for slot_id, card_id in enumerate(hand_card_ids):
+        if slot_id < len(hand_available) and bool(hand_available[slot_id]) and card_id != -1:
+            allowed.add(int(card_id))
+    return allowed
+
+
+def build_valid_action_indices(
+    allowed_card_ids: set[int],
+    card_id_to_action_idx_map: dict[int, int],
+    noop_idx: int | None,
+    skill_idx: int | None,
+) -> set[int]:
+    valid: set[int] = set()
+    if noop_idx is not None:
+        valid.add(noop_idx)
+    if skill_idx is not None:
+        valid.add(skill_idx)
+    for card_id in allowed_card_ids:
+        action_idx = card_id_to_action_idx_map.get(card_id)
+        if action_idx is not None:
+            valid.add(action_idx)
+    return valid
+
+
+def find_slot_index(card_id: int | None, hand_card_ids: List[int] | None) -> int:
+    if card_id is None or not hand_card_ids:
+        return -1
+    try:
+        return hand_card_ids.index(card_id)
+    except ValueError:
+        return -1
+
+
+def format_mask_topk(
+    label: str,
+    card_probs: torch.Tensor,
+    vocab: ActionVocab,
+    topk: int,
+    hand_card_ids: List[int] | None,
+    allowed_indices: List[int] | None = None,
+) -> List[str]:
+    k = min(topk, int(card_probs.numel()))
+    card_ids, card_vals = topk_probs(card_probs, k, allowed_indices=allowed_indices)
+    lines: List[str] = []
+    for rank, (action_idx, score) in enumerate(zip(card_ids, card_vals), start=1):
+        action_id = vocab.id_to_action[action_idx]
+        card_id = parse_card_id(str(action_id))
+        slot_index = find_slot_index(card_id, hand_card_ids)
+        card_label = card_id if card_id is not None else -1
+        lines.append(
+            f"{label} {rank:02d} action_id={action_id} card_id={card_label} "
+            f"score={score:.6f} slot_index={slot_index}"
+        )
+    return lines
 
 
 def combine_score(card_prob: float, grid_prob: float, mode: str) -> float:
@@ -129,10 +234,19 @@ def build_candidates(
     topk: int,
     score_mode: str,
     exclude_noop: bool,
+    valid_action_indices: set[int] | None = None,
 ) -> List[Tuple[float, int, float, int, float]]:
-    k_card = min(topk, card_probs.numel())
+    allowed_card_indices: List[int] | None = None
+    if valid_action_indices is not None:
+        allowed_card_indices = [
+            idx for idx in sorted(valid_action_indices) if 0 <= idx < int(card_probs.numel())
+        ]
+    k_card = min(
+        topk,
+        len(allowed_card_indices) if allowed_card_indices is not None else int(card_probs.numel()),
+    )
     k_grid = min(topk, grid_probs.numel())
-    card_ids, card_vals = topk_probs(card_probs, k_card)
+    card_ids, card_vals = topk_probs(card_probs, k_card, allowed_indices=allowed_card_indices)
     grid_ids, grid_vals = topk_probs(grid_probs, k_grid)
 
     candidates = []
@@ -202,6 +316,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--disable-hand-card-mask",
         action="store_true",
         help="Disable hand card action masking (debug)",
+    )
+    parser.add_argument(
+        "--debug-hand-mask",
+        action="store_true",
+        help="Print pre/post hand mask top-k debug output",
     )
     parser.add_argument("--noop-penalty", type=float, default=1.5, help="NOOP logit penalty")
     parser.add_argument(
@@ -305,42 +424,63 @@ def main() -> int:
     model.eval()
 
     state_path = os.path.join(args.data_dir, record["state_path"])
-    frame_bgr = cv2.imread(state_path, cv2.IMREAD_COLOR)
-    if frame_bgr is None:
-        warn(f"failed to load frame for hand_available: {state_path}")
-        hand_available = [0, 0, 0, 0]
-        hand_card_ids = [-1, -1, -1, -1]
-    else:
-        try:
-            _, hand_available, _, _ = hand_available_from_frame(
-                frame_bgr,
-                s_th=args.hand_s_th,
-                y1_ratio=args.hand_y1_ratio,
-                y2_ratio=args.hand_y2_ratio,
-                x_margin_ratio=args.hand_x_margin_ratio,
-                n_slots=4,
-            )
-        except ValueError as exc:
-            warn(f"hand_available failed: {exc}")
-            hand_available = [0, 0, 0, 0]
-        templates = load_hand_card_templates(args.hand_templates_dir)
-        if not templates:
-            hand_card_ids = [-1, -1, -1, -1]
+    hand_available = normalize_hand_available(record.get("hand_available"))
+    hand_card_ids = normalize_hand_card_ids(record.get("hand_card_ids"))
+    hand_available_source = "record" if hand_available is not None else None
+    hand_card_ids_source = "record" if hand_card_ids is not None else None
+
+    frame_bgr = None
+    if hand_available is None or hand_card_ids is None:
+        frame_bgr = cv2.imread(state_path, cv2.IMREAD_COLOR)
+        if frame_bgr is None:
+            warn(f"failed to load frame for hand features: {state_path}")
         else:
-            try:
-                hand_card_ids = infer_hand_card_ids_from_frame(
-                    frame_bgr,
-                    templates,
-                    min_score=args.hand_card_min_score,
-                    s_th=args.hand_s_th,
-                    y1_ratio=args.hand_y1_ratio,
-                    y2_ratio=args.hand_y2_ratio,
-                    x_margin_ratio=args.hand_x_margin_ratio,
-                    n_slots=4,
-                )
-            except ValueError as exc:
-                warn(f"hand_card_ids failed: {exc}")
-                hand_card_ids = [-1, -1, -1, -1]
+            if hand_available is None:
+                try:
+                    _, hand_available, _, _ = hand_available_from_frame(
+                        frame_bgr,
+                        s_th=args.hand_s_th,
+                        y1_ratio=args.hand_y1_ratio,
+                        y2_ratio=args.hand_y2_ratio,
+                        x_margin_ratio=args.hand_x_margin_ratio,
+                        n_slots=4,
+                    )
+                    hand_available_source = "frame"
+                except ValueError as exc:
+                    warn(f"hand_available failed: {exc}")
+            if hand_card_ids is None:
+                templates = load_hand_card_templates(args.hand_templates_dir)
+                if not templates:
+                    hand_card_ids = [-1, -1, -1, -1]
+                    hand_card_ids_source = "default"
+                else:
+                    try:
+                        hand_card_ids = infer_hand_card_ids_from_frame(
+                            frame_bgr,
+                            templates,
+                            min_score=args.hand_card_min_score,
+                            s_th=args.hand_s_th,
+                            y1_ratio=args.hand_y1_ratio,
+                            y2_ratio=args.hand_y2_ratio,
+                            x_margin_ratio=args.hand_x_margin_ratio,
+                            n_slots=4,
+                        )
+                        hand_card_ids_source = "frame"
+                    except ValueError as exc:
+                        warn(f"hand_card_ids failed: {exc}")
+                        hand_card_ids = [-1, -1, -1, -1]
+                        hand_card_ids_source = "default"
+
+    if hand_available is None:
+        hand_available = [0, 0, 0, 0]
+        hand_available_source = "default"
+    if hand_card_ids is None:
+        hand_card_ids = [-1, -1, -1, -1]
+        hand_card_ids_source = "default"
+    if hand_available_source == "default":
+        warn("hand_available missing; using zeros")
+    if hand_card_ids_source == "default" and not args.disable_hand_card_mask:
+        warn("hand_card_ids missing; card mask will exclude card actions")
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
 
     if two_frame:
@@ -354,20 +494,18 @@ def main() -> int:
     else:
         image = load_state_image_tensor(args.data_dir, record["state_path"]).unsqueeze(0)
     image = image.to(device)
+    noop_idx = vocab.action_to_id.get("__NOOP__")
+    skill_idx = vocab.action_to_id.get("SKILL_RIGHT")
+    pre_mask_probs = None
+    valid_action_indices: set[int] | None = None
     with torch.no_grad():
         card_logits, grid_logits = model(image, hand_tensor)
-        noop_idx = vocab.action_to_id.get("__NOOP__")
         card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
+        if args.debug_hand_mask:
+            pre_mask_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         if not args.disable_hand_card_mask:
-            skill_idx = vocab.action_to_id.get("SKILL_RIGHT")
-            allowed_card_ids = {
-                card_id
-                for slot_id, card_id in enumerate(hand_card_ids)
-                if slot_id < len(hand_available)
-                and bool(hand_available[slot_id])
-                and card_id != -1
-            }
-            card_id_to_action_idx = build_card_id_to_action_idx_map(vocab, max_card_id=8)
+            allowed_card_ids = build_allowed_card_ids(hand_available, hand_card_ids)
+            card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
             card_logits = apply_action_mask(
                 card_logits,
                 allowed_card_ids,
@@ -375,8 +513,36 @@ def main() -> int:
                 skill_idx,
                 card_id_to_action_idx,
             )
+            valid_action_indices = build_valid_action_indices(
+                allowed_card_ids,
+                card_id_to_action_idx,
+                noop_idx,
+                skill_idx,
+            )
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
+
+    if args.debug_hand_mask and pre_mask_probs is not None:
+        for line in format_mask_topk(
+            "mask_pre_topk",
+            pre_mask_probs,
+            vocab,
+            args.topk,
+            hand_card_ids,
+        ):
+            print(line)
+        allowed_indices = None
+        if valid_action_indices is not None:
+            allowed_indices = sorted(valid_action_indices)
+        for line in format_mask_topk(
+            "mask_post_topk",
+            card_probs,
+            vocab,
+            args.topk,
+            hand_card_ids,
+            allowed_indices=allowed_indices,
+        ):
+            print(line)
 
     top_candidates = build_candidates(
         card_probs,
@@ -385,10 +551,19 @@ def main() -> int:
         args.topk,
         args.score_mode,
         args.exclude_noop,
+        valid_action_indices=valid_action_indices,
     )
+    if not top_candidates and not args.disable_hand_card_mask:
+        if noop_idx is None:
+            warn("hand mask removed all candidates and __NOOP__ is missing")
+        else:
+            noop_prob = float(card_probs[noop_idx].item())
+            top_candidates = [(noop_prob, noop_idx, noop_prob, -1, 0.0)]
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
+        action_card_id = parse_card_id(str(action_id))
+        slot_index = find_slot_index(action_card_id, hand_card_ids)
         if grid_id >= 0:
             gx = grid_id % gw
             gy = grid_id // gw
@@ -398,7 +573,7 @@ def main() -> int:
         print(
             f"{rank:02d} action_id={action_id} card_prob={card_prob:.4f} "
             f"{grid_info} "
-            f"combined_score={score:.6f}"
+            f"slot_index={slot_index} combined_score={score:.6f}"
         )
 
     if args.render_overlay:
