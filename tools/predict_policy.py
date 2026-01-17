@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+from pathlib import Path
 import sys
 from typing import List, Tuple
 
@@ -312,6 +313,7 @@ def render_overlay(
     gh: int,
     out_path: str,
 ) -> None:
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     state_path = os.path.join(data_dir, record["state_path"])
     state_img = cv2.imread(state_path, cv2.IMREAD_COLOR)
     if state_img is None:
@@ -527,7 +529,16 @@ def main() -> int:
         elixir_frac = -1.0
     if hand_available_source == "default":
         warn("hand_available missing; using zeros")
-    if hand_card_ids_source == "default" and not args.disable_hand_card_mask:
+    hand_mask_auto_skip = False
+    if not args.disable_hand_card_mask:
+        if all(cid == -1 for cid in hand_card_ids) or all(a == 0 for a in hand_available):
+            warn("hand unknown/empty; skipping hand mask (safe)")
+            hand_mask_auto_skip = True
+    if (
+        hand_card_ids_source == "default"
+        and not args.disable_hand_card_mask
+        and not hand_mask_auto_skip
+    ):
         warn("hand_card_ids missing; card mask will exclude card actions")
     print(f"elixir={elixir} elixir_frac={elixir_frac:.2f}")
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
@@ -552,7 +563,7 @@ def main() -> int:
         card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
         if args.debug_hand_mask:
             pre_mask_probs = torch.softmax(card_logits, dim=1).squeeze(0)
-        if not args.disable_hand_card_mask:
+        if not args.disable_hand_card_mask and not hand_mask_auto_skip:
             allowed_card_ids = build_allowed_card_ids(hand_available, hand_card_ids)
             card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
             card_logits = apply_action_mask(
@@ -606,7 +617,7 @@ def main() -> int:
         top_candidates,
         card_probs,
         noop_idx,
-        args.disable_hand_card_mask,
+        args.disable_hand_card_mask or hand_mask_auto_skip,
     )
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
