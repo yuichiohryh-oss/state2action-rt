@@ -367,7 +367,8 @@ Each line in `dataset.jsonl` contains:
 - `roi`: [x1, y1, x2, y2]
 - `state_path`: relative path to 256x256 state image
 - `hand_available`: [0/1, 0/1, 0/1, 0/1] (per-slot availability via HSV mean S; bottom 90-97% ROI, 4 slots, threshold 30)
-- `hand_card_ids`: [card_id, card_id, card_id, card_id] or -1 for unknown (optional; present when templates are provided)
+- `hand_card_ids`: [card_id, card_id, card_id, card_id] or -1 for unknown (always present; -1 when templates are missing)
+- `hand_scores`: [score, score, score, score] (debug scores; 0.0 when templates are missing or slot unavailable)
 - `meta`: object (example: gw/gh/lead_sec/fps_effective)
 
 ## Parameters
