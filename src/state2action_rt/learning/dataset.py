@@ -14,7 +14,7 @@ import torch
 DEFAULT_HAND_AVAILABLE = [0, 0, 0, 0]
 HAND_SLOTS = 4
 HAND_CARD_CLASSES = 9
-HAND_CARD_MAX_ID = 8
+HAND_CARD_MAX_ID = 8  # exclusive upper bound; valid IDs are 0..7
 AUX_DIM = 1 + HAND_SLOTS * HAND_CARD_CLASSES + HAND_SLOTS
 
 
@@ -47,6 +47,7 @@ class ActionVocab:
 
 
 def ensure_hand_available(record: dict) -> dict:
+    # Mutates record to ensure downstream consumers always have hand_available.
     if "hand_available" not in record:
         record["hand_available"] = list(DEFAULT_HAND_AVAILABLE)
     return record
@@ -89,9 +90,9 @@ def normalize_elixir_frac(value: object) -> float:
         fvalue = float(value)
     except (TypeError, ValueError):
         return 0.0
-    if not math.isfinite(fvalue) or fvalue < 0.0:
+    if not math.isfinite(fvalue):
         return 0.0
-    return fvalue
+    return max(0.0, min(1.0, fvalue))
 
 
 def encode_aux(record: dict) -> torch.Tensor:
