@@ -63,7 +63,13 @@ def main() -> int:
         default=None,
         help="FPS override/fallback (required for image directory input)",
     )
-    parser.add_argument("--hand-s-th", type=int, default=30, help="Hand HSV S threshold")
+    parser.add_argument(
+        "--with-hand",
+        action="store_true",
+        default=False,
+        help="Enable hand inference (hand_available/hand_card_ids/hand_scores)",
+    )
+    parser.add_argument("--hand-s-th", type=float, default=60.0, help="Hand HSV S threshold")
     parser.add_argument(
         "--hand-y1-ratio",
         type=float,
@@ -87,7 +93,15 @@ def main() -> int:
         default=None,
         help="Optional directory of hand card templates (enables hand_card_ids)",
     )
-    parser.add_argument("--hand-card-min-score", type=float, default=0.6, help="Min template score for card id")
+    parser.add_argument(
+        "--hand-card-min-score", type=float, default=0.65, help="Min template score for card id"
+    )
+    parser.add_argument(
+        "--hand-template-size",
+        type=positive_int,
+        default=64,
+        help="Resize templates and slots to square size",
+    )
     parser.add_argument("--hand-roi-x1", type=int, default=None, help="Hand ROI x1 in pixels")
     parser.add_argument("--hand-roi-x2", type=int, default=None, help="Hand ROI x2 in pixels")
     parser.add_argument("--hand-roi-y1", type=int, default=None, help="Hand ROI y1 in pixels")
@@ -178,6 +192,13 @@ def main() -> int:
     )
     grid_config = GridConfig(gw=args.gw, gh=args.gh)
 
+    hand_roi_pixels = None
+    hand_roi_values = (args.hand_roi_x1, args.hand_roi_x2, args.hand_roi_y1, args.hand_roi_y2)
+    if all(value is not None for value in hand_roi_values):
+        hand_roi_pixels = hand_roi_values
+    elif any(value is not None for value in hand_roi_values):
+        warn("hand ROI override requires x1/x2/y1/y2; falling back to ratios")
+
     try:
         build_dataset(
             events=events,
@@ -187,18 +208,15 @@ def main() -> int:
             grid_config=grid_config,
             lead_sec=args.lead_sec,
             warn_fn=warn,
+            with_hand=args.with_hand,
             hand_s_th=float(args.hand_s_th),
             hand_y1_ratio=args.hand_y1_ratio,
             hand_y2_ratio=args.hand_y2_ratio,
             hand_x_margin_ratio=args.hand_x_margin_ratio,
             hand_templates_dir=args.hand_templates_dir,
             hand_card_min_score=args.hand_card_min_score,
-            hand_roi_pixels=(
-                args.hand_roi_x1,
-                args.hand_roi_x2,
-                args.hand_roi_y1,
-                args.hand_roi_y2,
-            ),
+            hand_template_size=args.hand_template_size,
+            hand_roi_pixels=hand_roi_pixels,
             elixir_roi_pixels=(
                 args.elixir_roi_x1,
                 args.elixir_roi_x2,

@@ -15,11 +15,13 @@ import cv2
 import numpy as np
 
 from state2action_rt.frame_source import VideoFrameSource
-from state2action_rt.hand_features import (
-    compute_hand_roi_rect,
-    hand_state_from_frame,
-    load_hand_templates,
+from state2action_rt.hand.hand_reader import (
+    HandDetectConfig,
+    detect_hand_state,
+    resolve_hand_roi_pixels,
+    summarize_hand_state,
 )
+from state2action_rt.hand_features import load_hand_templates
 
 
 def warn(msg: str) -> None:
@@ -184,6 +186,30 @@ def main() -> int:
     if not templates:
         warn(f"no hand templates loaded from {args.hand_templates_dir}")
 
+    hand_roi_pixels = (
+        args.hand_roi_x1,
+        args.hand_roi_x2,
+        args.hand_roi_y1,
+        args.hand_roi_y2,
+    )
+    try:
+        resolved_hand_roi_pixels = resolve_hand_roi_pixels(hand_roi_pixels)
+    except ValueError as exc:
+        warn(f"invalid hand ROI: {exc}")
+        return 1
+
+    hand_cfg = HandDetectConfig(
+        s_th=args.s_th,
+        card_min_score=args.hand_card_min_score,
+        y1_ratio=args.hand_y1_ratio,
+        y2_ratio=args.hand_y2_ratio,
+        x_margin_ratio=args.x_margin_ratio,
+        n_slots=4,
+        template_size=args.hand_template_size,
+        hand_roi_pixels=resolved_hand_roi_pixels,
+        templates=templates,
+    )
+
     try:
         src = VideoFrameSource(args.video)
     except Exception as exc:
@@ -223,43 +249,18 @@ def main() -> int:
             if frame is None:
                 break
 
-            hand_roi_pixels = (
-                args.hand_roi_x1,
-                args.hand_roi_x2,
-                args.hand_roi_y1,
-                args.hand_roi_y2,
-            )
             try:
-                hand_x1, hand_y1, hand_x2, hand_y2 = compute_hand_roi_rect(
-                    frame,
-                    y1_ratio=args.hand_y1_ratio,
-                    y2_ratio=args.hand_y2_ratio,
-                    x_margin_ratio=args.x_margin_ratio,
-                    hand_roi_pixels=hand_roi_pixels,
+                state, (hand_x1, hand_y1, hand_x2, hand_y2) = detect_hand_state(
+                    frame, hand_cfg
                 )
             except ValueError as exc:
                 warn(f"invalid hand ROI: {exc}")
                 return 1
-
-            state = hand_state_from_frame(
-                frame,
-                templates=templates,
-                s_th=args.s_th,
-                min_score=args.hand_card_min_score,
-                y1_ratio=args.hand_y1_ratio,
-                y2_ratio=args.hand_y2_ratio,
-                x_margin_ratio=args.x_margin_ratio,
-                n_slots=4,
-                template_size=args.hand_template_size,
-                hand_roi_pixels=hand_roi_pixels,
-            )
             hand_bgr = state["hand_roi"]
             slots = state["slot_rois"]
             match_rois = state["match_rois"]
             mean_s_list = state["mean_s"]
-            available_list = state["available"]
-            card_ids = state["card_ids"]
-            scores = state["scores"]
+            available_list, card_ids, scores = summarize_hand_state(state, hand_cfg)
 
             prefix = os.path.join(args.out_dir, f"frame_{frame_idx:06d}")
             hand_path = f"{prefix}_hand.png"

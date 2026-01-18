@@ -33,9 +33,11 @@ def test_build_dataset_single_record(tmp_path):
     assert records[0]["y_rel"] == 0.75
     assert records[0]["hand_available"] == [0, 0, 0, 0]
     assert records[0]["hand_card_ids"] == [-1, -1, -1, -1]
-    assert records[0]["hand_scores"] == [0.0, 0.0, 0.0, 0.0]
+    assert records[0]["hand_scores"] == [-1.0, -1.0, -1.0, -1.0]
     assert records[0]["elixir"] == -1
     assert records[0]["elixir_frac"] == -1.0
+    assert records[0]["meta"]["hand"]["s_th"] == 60.0
+    assert records[0]["meta"]["hand"]["card_min_score"] == 0.65
 
     dataset_path = out_dir / "dataset.jsonl"
     with open(dataset_path, "r", encoding="utf-8") as f:
@@ -47,7 +49,7 @@ def test_build_dataset_single_record(tmp_path):
     assert (out_dir / data[0]["state_path"]).exists()
     assert data[0]["hand_available"] == [0, 0, 0, 0]
     assert data[0]["hand_card_ids"] == [-1, -1, -1, -1]
-    assert data[0]["hand_scores"] == [0.0, 0.0, 0.0, 0.0]
+    assert data[0]["hand_scores"] == [-1.0, -1.0, -1.0, -1.0]
     assert data[0]["elixir"] == -1
     assert data[0]["elixir_frac"] == -1.0
 

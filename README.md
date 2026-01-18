@@ -70,7 +70,9 @@ python tools/build_dataset.py \
   --events /path/to/events.jsonl \
   --out-dir /path/to/out \
   --lead-sec 0.8 \
-  --gw 6 --gh 9
+  --gw 6 --gh 9 \
+  --with-hand \
+  --hand-templates-dir templates/hand_cards
 ```
 
 生成される `dataset.jsonl` の各レコードには、以下の情報が含まれます（一部抜粋）：
@@ -80,11 +82,13 @@ python tools/build_dataset.py \
 * `state_path` : 256x256 盤面画像へのパス
 * `hand_available` : [0/1, 0/1, 0/1, 0/1]
 * `hand_card_ids` : [card_id または -1, ...]
-* `hand_scores` : [score または 0.0, ...]
+* `hand_scores` : [score または -1.0, ...]
 
 `hand_*` フィールドは **常に出力されます**。
+`--with-hand` を指定しない場合は、
+`hand_available = 0`、`hand_card_ids = -1`、`hand_scores = -1.0` が設定されます。
 テンプレートが存在しない場合でも、
-`hand_card_ids = -1`、`hand_scores = 0.0` が設定されます。
+`hand_card_ids = -1`、`hand_scores = -1.0` となります。
 
 ---
 
