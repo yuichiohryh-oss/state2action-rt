@@ -175,6 +175,31 @@ def test_fallback_to_noop_when_candidates_empty() -> None:
     assert math.isclose(card_prob, float(card_probs[noop_idx].item()))
 
 
+def test_compute_min_hand_cost_returns_lowest() -> None:
+    allowed = {2, 5, 7}
+    min_cost = predict_policy.compute_min_hand_cost(allowed, predict_policy.CARD_COSTS)
+    assert min_cost == 1
+
+
+def test_build_affordable_fields_handles_card_and_noop() -> None:
+    affordable, cost, required_cost = predict_policy.build_affordable_fields(
+        "card_7",
+        elixir=3,
+        card_costs=predict_policy.CARD_COSTS,
+    )
+    assert affordable == 0
+    assert cost == 4
+    assert required_cost == 4
+    affordable, cost, required_cost = predict_policy.build_affordable_fields(
+        "__NOOP__",
+        elixir=0,
+        card_costs=predict_policy.CARD_COSTS,
+    )
+    assert affordable == 1
+    assert cost == 0
+    assert required_cost == 0
+
+
 def test_predict_help_includes_new_args() -> None:
     script_path = Path(__file__).resolve().parents[1] / "tools" / "predict_policy.py"
     root_dir = Path(__file__).resolve().parents[1]

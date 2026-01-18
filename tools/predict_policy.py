@@ -331,6 +331,36 @@ def build_elixir_valid_action_indices(
     return valid
 
 
+def resolve_action_cost(action_id: str, card_costs: dict[int, int]) -> int | None:
+    card_id = parse_card_id(str(action_id))
+    if card_id is None:
+        if action_id == "__NOOP__":
+            return 0
+        return None
+    return card_costs.get(card_id)
+
+
+def compute_min_hand_cost(allowed_card_ids: set[int], card_costs: dict[int, int]) -> int | None:
+    costs = [card_costs[card_id] for card_id in allowed_card_ids if card_id in card_costs]
+    if not costs:
+        return None
+    return min(costs)
+
+
+def build_affordable_fields(
+    action_id: str,
+    elixir: int,
+    card_costs: dict[int, int],
+) -> Tuple[int, int, int]:
+    cost = resolve_action_cost(action_id, card_costs)
+    cost_value = cost if cost is not None else -1
+    if cost is None or elixir < 0:
+        affordable = 0
+    else:
+        affordable = 1 if cost <= elixir else 0
+    return affordable, cost_value, cost_value
+
+
 def build_candidates(
     card_probs: torch.Tensor,
     grid_probs: torch.Tensor,
@@ -417,6 +447,9 @@ def render_overlay(
     hand_y1_ratio: float = 0.90,
     hand_y2_ratio: float = 0.97,
     hand_x_margin_ratio: float = 0.03,
+    show_grid: bool = True,
+    show_wait: bool = False,
+    wait_text: str = "WAIT",
 ) -> None:
     out_path_value = out_path
     if out_path:
@@ -427,19 +460,20 @@ def render_overlay(
     state_img = cv2.imread(state_path, cv2.IMREAD_COLOR)
     if state_img is None:
         raise FileNotFoundError(f"failed to load state image: {state_path}")
-    roi = record["roi"]
-    roi_w = max(1.0, float(roi[2] - roi[0]))
-    roi_h = max(1.0, float(roi[3] - roi[1]))
-    scale_x = state_img.shape[1] / roi_w
-    scale_y = state_img.shape[0] / roi_h
+    if show_grid and grid_id >= 0:
+        roi = record["roi"]
+        roi_w = max(1.0, float(roi[2] - roi[0]))
+        roi_h = max(1.0, float(roi[3] - roi[1]))
+        scale_x = state_img.shape[1] / roi_w
+        scale_y = state_img.shape[0] / roi_h
 
-    cell = grid_id_to_cell_rect(grid_id, tuple(roi), gw, gh)
-    sx1 = int(round((cell[0] - roi[0]) * scale_x))
-    sy1 = int(round((cell[1] - roi[1]) * scale_y))
-    sx2 = int(round((cell[2] - roi[0]) * scale_x))
-    sy2 = int(round((cell[3] - roi[1]) * scale_y))
+        cell = grid_id_to_cell_rect(grid_id, tuple(roi), gw, gh)
+        sx1 = int(round((cell[0] - roi[0]) * scale_x))
+        sy1 = int(round((cell[1] - roi[1]) * scale_y))
+        sx2 = int(round((cell[2] - roi[0]) * scale_x))
+        sy2 = int(round((cell[3] - roi[1]) * scale_y))
 
-    cv2.rectangle(state_img, (sx1, sy1), (sx2, sy2), (0, 255, 0), 2)
+        cv2.rectangle(state_img, (sx1, sy1), (sx2, sy2), (0, 255, 0), 2)
     if slot_index >= 0:
         try:
             hand_rect = compute_hand_roi_rect(
@@ -468,6 +502,30 @@ def render_overlay(
                 )
         except ValueError:
             pass
+    if show_wait:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = max(1.2, min(3.0, state_img.shape[1] / 220.0))
+        thickness = max(2, int(round(font_scale * 2)))
+        text_size, baseline = cv2.getTextSize(wait_text, font, font_scale, thickness)
+        text_w, text_h = text_size
+        text_x = max(0, (state_img.shape[1] - text_w) // 2)
+        text_y = state_img.shape[0] - max(12, baseline + 8)
+        pad = 10
+        box_x1 = max(0, text_x - pad)
+        box_y1 = max(0, text_y - text_h - baseline - pad)
+        box_x2 = min(state_img.shape[1] - 1, text_x + text_w + pad)
+        box_y2 = min(state_img.shape[0] - 1, text_y + baseline + pad)
+        cv2.rectangle(state_img, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1)
+        cv2.putText(
+            state_img,
+            wait_text,
+            (text_x, text_y),
+            font,
+            font_scale,
+            (255, 255, 255),
+            thickness,
+            cv2.LINE_AA,
+        )
     ok = cv2.imwrite(out_path_value, state_img)
     if not ok:
         raise RuntimeError("failed to write overlay image")
@@ -692,6 +750,10 @@ def main() -> int:
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
     card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
     elixir_masked_count = 0
+    allowed_card_ids: set[int] = set()
+    hand_valid_action_indices: set[int] | None = None
+    hand_mask_applied = False
+    hand_only_probs = None
 
     if two_frame:
         delta_frames = resolve_delta_frames(record, delta_frames, args.delta_sec)
@@ -713,24 +775,27 @@ def main() -> int:
         card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
         if args.debug_hand_mask:
             pre_mask_probs = torch.softmax(card_logits, dim=1).squeeze(0)
+        card_logits_hand = card_logits
         if not args.disable_hand_card_mask and not hand_mask_auto_skip:
+            hand_mask_applied = True
             allowed_card_ids = build_allowed_card_ids(hand_available, hand_card_ids)
-            card_logits = apply_action_mask(
-                card_logits,
+            card_logits_hand = apply_action_mask(
+                card_logits_hand,
                 allowed_card_ids,
                 noop_idx,
                 skill_idx,
                 card_id_to_action_idx,
             )
-            valid_action_indices = build_valid_action_indices(
+            hand_valid_action_indices = build_valid_action_indices(
                 allowed_card_ids,
                 card_id_to_action_idx,
                 noop_idx,
                 skill_idx,
             )
+            valid_action_indices = hand_valid_action_indices
         if args.enable_elixir_mask and elixir >= 0:
             card_logits, elixir_masked_count = apply_elixir_mask(
-                card_logits,
+                card_logits_hand,
                 elixir,
                 CARD_COSTS,
                 card_id_to_action_idx,
@@ -748,8 +813,12 @@ def main() -> int:
                 valid_action_indices = elixir_valid_indices
             else:
                 valid_action_indices = valid_action_indices & elixir_valid_indices
+        else:
+            card_logits = card_logits_hand
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
+        if hand_mask_applied:
+            hand_only_probs = torch.softmax(card_logits_hand, dim=1).squeeze(0)
 
     if args.enable_elixir_mask and elixir >= 0:
         print(f"elixir_masked={elixir_masked_count}")
@@ -788,19 +857,56 @@ def main() -> int:
         args.exclude_noop,
         valid_action_indices=valid_action_indices,
     )
-    top_candidates = ensure_candidates_with_noop(
-        top_candidates,
-        card_probs,
-        noop_idx,
-        args.disable_hand_card_mask or hand_mask_auto_skip,
-    )
-    if args.dedup_topk_by_slot:
-        top_candidates = dedup_candidates_by_slot(
-            top_candidates,
+    fallback_used = False
+    fallback_slot_index = -1
+    if (
+        args.enable_elixir_mask
+        and elixir >= 0
+        and hand_mask_applied
+        and not top_candidates
+    ):
+        fallback_used = True
+        min_cost = compute_min_hand_cost(allowed_card_ids, CARD_COSTS)
+        min_cost_value = min_cost if min_cost is not None else -1
+        print(f"WAIT: insufficient elixir (elixir={elixir}, min_cost={min_cost_value})")
+        if hand_only_probs is None:
+            hand_only_probs = card_probs
+        top_candidates = build_candidates(
+            hand_only_probs,
+            grid_probs,
             vocab,
-            hand_card_ids,
-            args.topk,
+            candidate_pool_k,
+            args.score_mode,
+            args.exclude_noop,
+            valid_action_indices=hand_valid_action_indices,
         )
+        top_candidates = ensure_candidates_with_noop(
+            top_candidates,
+            hand_only_probs,
+            noop_idx,
+            args.disable_hand_card_mask or hand_mask_auto_skip,
+        )
+        if args.dedup_topk_by_slot:
+            top_candidates = dedup_candidates_by_slot(
+                top_candidates,
+                vocab,
+                hand_card_ids,
+                args.topk,
+            )
+    else:
+        top_candidates = ensure_candidates_with_noop(
+            top_candidates,
+            card_probs,
+            noop_idx,
+            args.disable_hand_card_mask or hand_mask_auto_skip,
+        )
+        if args.dedup_topk_by_slot:
+            top_candidates = dedup_candidates_by_slot(
+                top_candidates,
+                vocab,
+                hand_card_ids,
+                args.topk,
+            )
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
@@ -812,34 +918,82 @@ def main() -> int:
             grid_info = f"grid_id={grid_id} (gx={gx},gy={gy}) grid_prob={grid_prob:.4f}"
         else:
             grid_info = "grid_id=-1 grid_prob=0.0000"
-        print(
-            f"{rank:02d} action_id={action_id} card_prob={card_prob:.4f} "
-            f"{grid_info} "
-            f"slot_index={slot_index} combined_score={score:.6f}"
-        )
+        if fallback_used:
+            affordable, cost_value, required_cost = build_affordable_fields(
+                str(action_id),
+                elixir,
+                CARD_COSTS,
+            )
+            if affordable == 1 and fallback_slot_index < 0 and grid_id >= 0:
+                fallback_slot_index = slot_index
+            print(
+                f"{rank:02d} action_id={action_id} card_prob={card_prob:.4f} "
+                f"{grid_info} "
+                f"slot_index={slot_index} combined_score={score:.6f} "
+                f"affordable={affordable} cost={cost_value} required_cost={required_cost}"
+            )
+        else:
+            print(
+                f"{rank:02d} action_id={action_id} card_prob={card_prob:.4f} "
+                f"{grid_info} "
+                f"slot_index={slot_index} combined_score={score:.6f}"
+            )
 
     if args.render_overlay:
         if top_candidates:
-            top_grid = top_candidates[0][3]
-            if top_grid >= 0:
-                top_action_id = vocab.id_to_action[top_candidates[0][1]]
-                top_card_id = parse_card_id(str(top_action_id))
-                top_slot_index = find_slot_index(top_card_id, hand_card_ids)
+            if fallback_used:
                 render_overlay(
                     args.data_dir,
                     record,
-                    top_grid,
+                    -1,
                     gw,
                     gh,
                     args.overlay_out,
-                    slot_index=top_slot_index,
+                    slot_index=fallback_slot_index,
                     hand_y1_ratio=args.hand_y1_ratio,
                     hand_y2_ratio=args.hand_y2_ratio,
                     hand_x_margin_ratio=args.hand_x_margin_ratio,
+                    show_grid=False,
+                    show_wait=True,
                 )
                 print(f"overlay_saved={args.overlay_out}")
             else:
-                print("overlay_skipped=NOOP")
+                top_grid = top_candidates[0][3]
+                if top_grid >= 0:
+                    top_action_id = vocab.id_to_action[top_candidates[0][1]]
+                    top_card_id = parse_card_id(str(top_action_id))
+                    top_slot_index = find_slot_index(top_card_id, hand_card_ids)
+                    render_overlay(
+                        args.data_dir,
+                        record,
+                        top_grid,
+                        gw,
+                        gh,
+                        args.overlay_out,
+                        slot_index=top_slot_index,
+                        hand_y1_ratio=args.hand_y1_ratio,
+                        hand_y2_ratio=args.hand_y2_ratio,
+                        hand_x_margin_ratio=args.hand_x_margin_ratio,
+                    )
+                    print(f"overlay_saved={args.overlay_out}")
+                else:
+                    print("overlay_skipped=NOOP")
+        elif fallback_used:
+            render_overlay(
+                args.data_dir,
+                record,
+                -1,
+                gw,
+                gh,
+                args.overlay_out,
+                slot_index=fallback_slot_index,
+                hand_y1_ratio=args.hand_y1_ratio,
+                hand_y2_ratio=args.hand_y2_ratio,
+                hand_x_margin_ratio=args.hand_x_margin_ratio,
+                show_grid=False,
+                show_wait=True,
+            )
+            print(f"overlay_saved={args.overlay_out}")
         elif args.exclude_noop:
             print("overlay_skipped=NOOP")
 
