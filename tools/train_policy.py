@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from state2action_rt.learning.dataset import (
+    AUX_DIM,
     ActionVocab,
     StateActionDataset,
     infer_grid_shape,
@@ -92,12 +93,13 @@ def evaluate(
     noop_total = 0.0
     total_samples = 0
     with torch.no_grad():
-        for images, card_labels, grid_labels, hand_available in loader:
+        for images, aux, labels in loader:
             images = images.to(device)
+            aux = aux.to(device)
+            card_labels, grid_labels = labels
             card_labels = card_labels.to(device)
             grid_labels = grid_labels.to(device)
-            hand_available = hand_available.to(device)
-            card_logits, grid_logits = model(images, hand_available=hand_available)
+            card_logits, grid_logits = model(images, aux)
             loss = criterion(card_logits, card_labels) + grid_criterion(grid_logits, grid_labels)
             batch_size = images.size(0)
             total_loss += loss.item() * batch_size
@@ -230,7 +232,12 @@ def main() -> int:
         in_channels = 6
     else:
         in_channels = 3
-    model = PolicyNet(num_actions=num_actions, num_grids=num_grids, in_channels=in_channels).to(device)
+    model = PolicyNet(
+        num_actions=num_actions,
+        num_grids=num_grids,
+        in_channels=in_channels,
+        aux_dim=AUX_DIM,
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     grid_criterion = nn.CrossEntropyLoss(ignore_index=-1)
@@ -247,13 +254,14 @@ def main() -> int:
         model.train()
         running_loss = 0.0
         total_samples = 0
-        for images, card_labels, grid_labels, hand_available in tqdm(train_loader, desc=f"epoch {epoch}"):
+        for images, aux, labels in tqdm(train_loader, desc=f"epoch {epoch}"):
             images = images.to(device)
+            aux = aux.to(device)
+            card_labels, grid_labels = labels
             card_labels = card_labels.to(device)
             grid_labels = grid_labels.to(device)
-            hand_available = hand_available.to(device)
             optimizer.zero_grad()
-            card_logits, grid_logits = model(images, hand_available=hand_available)
+            card_logits, grid_logits = model(images, aux)
             loss = criterion(card_logits, card_labels) + grid_criterion(grid_logits, grid_labels)
             loss.backward()
             optimizer.step()
@@ -289,6 +297,7 @@ def main() -> int:
             "diff_channels": args.diff_channels,
             "delta_frames": args.delta_frames,
             "in_channels": in_channels,
+            "aux_dim": model.aux_dim,
         }
         if val_metrics["loss"] < best_val:
             best_val = val_metrics["loss"]

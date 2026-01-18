@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from dataclasses import dataclass
@@ -10,7 +11,11 @@ import cv2
 import numpy as np
 import torch
 
-DEFAULT_HAND_AVAILABLE = [1, 1, 1, 1]
+DEFAULT_HAND_AVAILABLE = [0, 0, 0, 0]
+HAND_SLOTS = 4
+HAND_CARD_CLASSES = 9
+HAND_CARD_MAX_ID = 8  # exclusive upper bound; valid IDs are 0..7
+AUX_DIM = 1 + HAND_SLOTS * HAND_CARD_CLASSES + HAND_SLOTS
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class ActionVocab:
 
 
 def ensure_hand_available(record: dict) -> dict:
+    # Mutates record to ensure downstream consumers always have hand_available.
     if "hand_available" not in record:
         record["hand_available"] = list(DEFAULT_HAND_AVAILABLE)
     return record
@@ -49,9 +55,69 @@ def ensure_hand_available(record: dict) -> dict:
 
 def load_hand_available(record: dict) -> torch.Tensor:
     hand_available = record.get("hand_available")
-    if not isinstance(hand_available, (list, tuple)) or len(hand_available) != 4:
+    if not isinstance(hand_available, (list, tuple)) or len(hand_available) != HAND_SLOTS:
         hand_available = DEFAULT_HAND_AVAILABLE
     return torch.tensor(hand_available, dtype=torch.float32)
+
+
+def normalize_hand_available(value: object) -> List[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != HAND_SLOTS:
+        return list(DEFAULT_HAND_AVAILABLE)
+    normalized: List[int] = []
+    for item in value:
+        try:
+            ivalue = int(item)
+        except (TypeError, ValueError):
+            ivalue = 0
+        normalized.append(1 if ivalue != 0 else 0)
+    return normalized
+
+
+def normalize_hand_card_ids(value: object) -> List[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != HAND_SLOTS:
+        return [-1] * HAND_SLOTS
+    normalized: List[int] = []
+    for item in value:
+        try:
+            normalized.append(int(item))
+        except (TypeError, ValueError):
+            normalized.append(-1)
+    return normalized
+
+
+def normalize_elixir_frac(value: object) -> float:
+    try:
+        fvalue = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(fvalue):
+        return 0.0
+    return max(0.0, min(1.0, fvalue))
+
+
+def encode_aux(record: dict) -> torch.Tensor:
+    hand_available = normalize_hand_available(record.get("hand_available"))
+    hand_card_ids = normalize_hand_card_ids(record.get("hand_card_ids"))
+    elixir_frac = normalize_elixir_frac(record.get("elixir_frac"))
+
+    aux = torch.zeros(AUX_DIM, dtype=torch.float32)
+    aux[0] = elixir_frac
+
+    offset = 1
+    unknown_index = HAND_CARD_CLASSES - 1
+    for slot_idx in range(HAND_SLOTS):
+        slot_base = offset + slot_idx * HAND_CARD_CLASSES
+        available = hand_available[slot_idx]
+        card_id = hand_card_ids[slot_idx]
+        if not available or card_id < 0 or card_id >= HAND_CARD_MAX_ID:
+            aux[slot_base + unknown_index] = 1.0
+        else:
+            aux[slot_base + card_id] = 1.0
+
+    avail_offset = 1 + HAND_SLOTS * HAND_CARD_CLASSES
+    for slot_idx in range(HAND_SLOTS):
+        aux[avail_offset + slot_idx] = float(hand_available[slot_idx])
+    return aux
 
 
 def load_records_from_path(dataset_path: str) -> List[dict]:
@@ -191,7 +257,7 @@ class StateActionDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.records)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, int, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Tuple[int, int]]:
         record = self.records[idx]
         state_path = record["state_path"]
         if self.two_frame:
@@ -205,8 +271,8 @@ class StateActionDataset(torch.utils.data.Dataset):
         action_id = str(record["action_id"])
         card_label = self.vocab.action_to_id[action_id]
         grid_label = int(record["grid_id"])
-        hand_available = load_hand_available(record)
-        return image, card_label, grid_label, hand_available
+        aux = encode_aux(record)
+        return image, aux, (card_label, grid_label)
 
 
 def load_record_by_idx(data_dir: str, idx: int, dataset_path: str | None = None) -> dict | None:
