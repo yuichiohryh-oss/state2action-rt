@@ -161,7 +161,7 @@ Top-k 行動提案（hand_* / elixir による action mask を適用）
 ```json
 "hand_available": [0, 0, 1, 1],
 "hand_card_ids":  [-1, -1, 3, 7],
-"hand_scores":    [0.0, 0.0, 0.86, 0.91]
+"hand_scores":    [-1.0, -1.0, 0.86, 0.91]
 ```
 
 * 推論時：hand_available + hand_card_ids で card action をマスク

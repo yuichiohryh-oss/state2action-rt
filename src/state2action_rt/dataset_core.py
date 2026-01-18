@@ -11,7 +11,13 @@ from .elixir_features import ElixirRoiPixels, estimate_elixir_from_frame
 from .frame_source import FrameSource
 from .grid import xy_to_grid_id
 from .hand_cards import HandCardTemplate
-from .hand_features import HandRoiPixels, hand_available_from_frame, hand_state_from_frame, load_hand_templates
+from .hand.hand_reader import HandDetectConfig, detect_hand, resolve_hand_roi_pixels
+from .hand_features import (
+    HandRoiPixels,
+    compute_hand_roi_rect,
+    hand_available_from_frame,
+    load_hand_templates,
+)
 from .roi import RoiConfig, detect_roi, make_state_image
 
 
@@ -44,13 +50,14 @@ def build_dataset(
     grid_config: GridConfig,
     lead_sec: float,
     warn_fn: Callable[[str], None],
-    hand_s_th: float = 30.0,
+    with_hand: bool = False,
+    hand_s_th: float = 60.0,
     hand_y1_ratio: float = 0.90,
     hand_y2_ratio: float = 0.97,
     hand_x_margin_ratio: float = 0.03,
     hand_templates_dir: str | None = None,
-    hand_card_min_score: float = 0.6,
-    hand_template_size: Tuple[int, int] = (64, 64),
+    hand_card_min_score: float = 0.65,
+    hand_template_size: int | Tuple[int, int] = 64,
     hand_roi_pixels: HandRoiPixels | None = None,
     elixir_roi_pixels: ElixirRoiPixels | None = None,
     elixir_purple_h_min: int = 120,
@@ -73,6 +80,18 @@ def build_dataset(
         templates = load_hand_templates(hand_templates_dir, hand_template_size)
         if not templates:
             warn_fn(f"no hand templates loaded from {hand_templates_dir}")
+
+    hand_cfg = HandDetectConfig(
+        s_th=hand_s_th,
+        card_min_score=hand_card_min_score,
+        y1_ratio=hand_y1_ratio,
+        y2_ratio=hand_y2_ratio,
+        x_margin_ratio=hand_x_margin_ratio,
+        n_slots=4,
+        template_size=hand_template_size,
+        hand_roi_pixels=hand_roi_pixels,
+        templates=templates,
+    )
 
     records: List[Dict] = []
     for idx, event in enumerate(events):
@@ -126,20 +145,7 @@ def build_dataset(
                 "fps_effective": float(frame_source.fps),
             },
         }
-        record = with_hand_features(
-            record,
-            frame,
-            templates=templates,
-            s_th=hand_s_th,
-            min_score=hand_card_min_score,
-            y1_ratio=hand_y1_ratio,
-            y2_ratio=hand_y2_ratio,
-            x_margin_ratio=hand_x_margin_ratio,
-            n_slots=4,
-            template_size=hand_template_size,
-            hand_roi_pixels=hand_roi_pixels,
-            warn_fn=warn_fn,
-        )
+        record = with_hand_features(record, frame, hand_cfg=hand_cfg, warn_fn=warn_fn, enabled=with_hand)
         record = with_elixir_features(
             record,
             frame,
@@ -188,57 +194,52 @@ def with_hand_available(
 def with_hand_features(
     record: Dict,
     frame_bgr: np.ndarray,
-    templates: List[HandCardTemplate],
-    min_score: float,
-    s_th: float,
-    y1_ratio: float,
-    y2_ratio: float,
-    x_margin_ratio: float,
-    n_slots: int,
-    template_size: Tuple[int, int],
-    hand_roi_pixels: HandRoiPixels | None,
+    hand_cfg: HandDetectConfig,
     warn_fn: Callable[[str], None],
+    enabled: bool = True,
 ) -> Dict:
+    n_slots = hand_cfg.n_slots
+    roi_px = None
     try:
-        state = hand_state_from_frame(
+        roi_px = compute_hand_roi_rect(
             frame_bgr,
-            templates=templates,
-            s_th=s_th,
-            min_score=min_score,
-            y1_ratio=y1_ratio,
-            y2_ratio=y2_ratio,
-            x_margin_ratio=x_margin_ratio,
-            n_slots=n_slots,
-            template_size=template_size,
-            hand_roi_pixels=hand_roi_pixels,
+            y1_ratio=hand_cfg.y1_ratio,
+            y2_ratio=hand_cfg.y2_ratio,
+            x_margin_ratio=hand_cfg.x_margin_ratio,
+            hand_roi_pixels=resolve_hand_roi_pixels(hand_cfg.hand_roi_pixels),
         )
     except ValueError as exc:
-        warn_fn(f"hand_features failed: {exc}")
-        return {
-            **record,
-            "hand_available": [1 for _ in range(n_slots)],
-            "hand_card_ids": [-1 for _ in range(n_slots)],
-            "hand_scores": [0.0 for _ in range(n_slots)],
-        }
+        warn_fn(f"hand ROI failed: {exc}")
 
-    available = [int(v) for v in state["available"]]
-    if not templates:
-        card_ids = [-1 for _ in range(n_slots)]
-        scores = [0.0 for _ in range(n_slots)]
-    else:
-        card_ids = [int(v) for v in state["card_ids"]]
-        scores = [float(v) for v in state["scores"]]
-        for i, is_available in enumerate(available):
-            if not is_available:
-                card_ids[i] = -1
-                scores[i] = 0.0
+    available = [0 for _ in range(n_slots)]
+    card_ids = [-1 for _ in range(n_slots)]
+    scores = [-1.0 for _ in range(n_slots)]
+    if enabled:
+        try:
+            available, card_ids, scores, roi_px = detect_hand(frame_bgr, hand_cfg)
+        except ValueError as exc:
+            warn_fn(f"hand_features failed: {exc}")
 
+    meta = dict(record.get("meta", {}))
+    meta["hand"] = {
+        "s_th": float(hand_cfg.s_th),
+        "card_min_score": float(hand_cfg.card_min_score),
+        "roi_px": [int(v) for v in roi_px] if roi_px else None,
+        "template_size": _serialize_template_size(hand_cfg.template_size),
+    }
     return {
         **record,
         "hand_available": available,
         "hand_card_ids": card_ids,
         "hand_scores": scores,
+        "meta": meta,
     }
+
+
+def _serialize_template_size(template_size: int | Tuple[int, int]) -> int | List[int]:
+    if isinstance(template_size, int):
+        return int(template_size)
+    return [int(template_size[0]), int(template_size[1])]
 
 
 def with_elixir_features(
