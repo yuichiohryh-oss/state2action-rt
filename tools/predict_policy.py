@@ -16,7 +16,9 @@ from state2action_rt.hand_cards import (
 )
 from state2action_rt.hand_features import compute_hand_roi_rect, hand_available_from_frame
 from state2action_rt.learning.dataset import (
+    AUX_DIM,
     ActionVocab,
+    encode_aux,
     infer_grid_shape,
     load_record_by_idx,
     load_state_pair_tensor,
@@ -640,6 +642,9 @@ def main() -> int:
     ckpt_diff_channels = bool(checkpoint.get("diff_channels", False))
     ckpt_delta_frames = int(checkpoint.get("delta_frames", 1))
     ckpt_in_channels = checkpoint.get("in_channels")
+    ckpt_aux_dim = int(checkpoint.get("aux_dim", 0) or 0)
+    if ckpt_aux_dim not in (0, AUX_DIM):
+        warn(f"checkpoint aux_dim={ckpt_aux_dim} does not match expected {AUX_DIM}")
     if ckpt_in_channels is None:
         if ckpt_diff_channels:
             ckpt_in_channels = 9
@@ -668,7 +673,12 @@ def main() -> int:
     else:
         in_channels = args.in_channels
 
-    model = PolicyNet(num_actions=len(vocab.id_to_action), num_grids=num_grids, in_channels=in_channels)
+    model = PolicyNet(
+        num_actions=len(vocab.id_to_action),
+        num_grids=num_grids,
+        in_channels=in_channels,
+        aux_dim=ckpt_aux_dim,
+    )
     model.load_state_dict(checkpoint["model_state"])
     model.to(device)
     model.eval()
@@ -748,7 +758,14 @@ def main() -> int:
     ):
         warn("hand_card_ids missing; card mask will exclude card actions")
     print(f"elixir={elixir} elixir_frac={elixir_frac:.2f}")
-    hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
+    aux_tensor = None
+    if ckpt_aux_dim > 0:
+        aux_record = {
+            "hand_available": hand_available,
+            "hand_card_ids": hand_card_ids,
+            "elixir_frac": elixir_frac,
+        }
+        aux_tensor = encode_aux(aux_record).to(device)
     card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
     elixir_masked_count = 0
     allowed_card_ids: set[int] = set()
@@ -772,7 +789,10 @@ def main() -> int:
     pre_mask_probs = None
     valid_action_indices: set[int] | None = None
     with torch.no_grad():
-        card_logits, grid_logits = model(image, hand_tensor)
+        if ckpt_aux_dim > 0:
+            card_logits, grid_logits = model(image, aux_tensor)
+        else:
+            card_logits, grid_logits = model(image)
         card_logits = apply_noop_penalty(card_logits, hand_available, noop_idx, args.noop_penalty)
         if args.debug_hand_mask:
             pre_mask_probs = torch.softmax(card_logits, dim=1).squeeze(0)
