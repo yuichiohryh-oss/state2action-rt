@@ -189,7 +189,7 @@ def test_build_affordable_fields_handles_card_and_noop() -> None:
     )
     assert affordable == 0
     assert cost == 4
-    assert required_cost == 4
+    assert required_cost == 1
     affordable, cost, required_cost = predict_policy.build_affordable_fields(
         "__NOOP__",
         elixir=0,

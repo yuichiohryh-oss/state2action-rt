@@ -123,7 +123,7 @@ def normalize_elixir_frac(value: object) -> float | None:
         return None
     if fvalue == -1.0:
         return -1.0
-    if 0.0 <= fvalue <= 10.0:
+    if 0.0 <= fvalue <= 1.0:
         return fvalue
     return None
 
@@ -353,12 +353,13 @@ def build_affordable_fields(
     card_costs: dict[int, int],
 ) -> Tuple[int, int, int]:
     cost = resolve_action_cost(action_id, card_costs)
-    cost_value = cost if cost is not None else -1
-    if cost is None or elixir < 0:
-        affordable = 0
-    else:
-        affordable = 1 if cost <= elixir else 0
-    return affordable, cost_value, cost_value
+    if cost is None:
+        return 0, -1, -1
+    if elixir < 0:
+        return 0, cost, -1
+    affordable = 1 if cost <= elixir else 0
+    required_cost = max(0, cost - elixir)
+    return affordable, cost, required_cost
 
 
 def build_candidates(
