@@ -14,7 +14,7 @@ from state2action_rt.hand_cards import (
     load_hand_card_templates,
     parse_card_id,
 )
-from state2action_rt.hand_features import hand_available_from_frame
+from state2action_rt.hand_features import compute_hand_roi_rect, hand_available_from_frame
 from state2action_rt.learning.dataset import (
     ActionVocab,
     infer_grid_shape,
@@ -29,6 +29,18 @@ from state2action_rt.learning.model import PolicyNet
 
 def warn(msg: str) -> None:
     print(f"[warn] {msg}", file=sys.stderr)
+
+
+CARD_COSTS = {
+    0: 3,
+    1: 1,
+    2: 4,
+    3: 4,
+    4: 2,
+    5: 1,
+    6: 2,
+    7: 4,
+}
 
 
 def select_device(device_arg: str) -> torch.device:
@@ -190,6 +202,24 @@ def combine_score(card_prob: float, grid_prob: float, mode: str) -> float:
     raise ValueError(f"unknown score mode: {mode}")
 
 
+def compute_hand_slot_rects(
+    hand_rect: Tuple[int, int, int, int],
+    n_slots: int = 4,
+) -> List[Tuple[int, int, int, int]]:
+    x1, y1, x2, y2 = hand_rect
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError("hand ROI is empty")
+    width = float(x2 - x1)
+    rects: List[Tuple[int, int, int, int]] = []
+    for i in range(n_slots):
+        sx1 = int(round(x1 + i * width / n_slots))
+        sx2 = int(round(x1 + (i + 1) * width / n_slots))
+        if sx2 <= sx1:
+            sx2 = min(x2, sx1 + 1)
+        rects.append((sx1, y1, sx2, y2))
+    return rects
+
+
 def apply_noop_penalty(
     logits: torch.Tensor,
     hand_available: torch.Tensor | List[int],
@@ -252,6 +282,55 @@ def apply_action_mask(
     return masked
 
 
+def apply_elixir_mask(
+    logits: torch.Tensor,
+    elixir: int,
+    card_costs: dict[int, int],
+    card_id_to_action_idx_map: dict[int, int],
+    noop_idx: int | None,
+    skill_idx: int | None,
+    mask_value: float = -1e9,
+) -> Tuple[torch.Tensor, int]:
+    if elixir < 0:
+        return logits, 0
+    exempt_indices = {idx for idx in (noop_idx, skill_idx) if idx is not None}
+    masked = logits.clone()
+    masked_count = 0
+    for card_id, action_idx in card_id_to_action_idx_map.items():
+        if action_idx in exempt_indices:
+            continue
+        cost = card_costs.get(card_id)
+        if cost is None or cost <= elixir:
+            continue
+        if masked.dim() == 1:
+            masked[action_idx] = mask_value
+        elif masked.dim() == 2:
+            masked[:, action_idx] = mask_value
+        else:
+            raise ValueError("logits must be 1D or 2D")
+        masked_count += 1
+    return masked, masked_count
+
+
+def build_elixir_valid_action_indices(
+    card_id_to_action_idx_map: dict[int, int],
+    elixir: int,
+    card_costs: dict[int, int],
+    noop_idx: int | None,
+    skill_idx: int | None,
+) -> set[int]:
+    valid: set[int] = set()
+    if noop_idx is not None:
+        valid.add(noop_idx)
+    if skill_idx is not None:
+        valid.add(skill_idx)
+    for card_id, action_idx in card_id_to_action_idx_map.items():
+        cost = card_costs.get(card_id)
+        if cost is None or cost <= elixir:
+            valid.add(action_idx)
+    return valid
+
+
 def build_candidates(
     card_probs: torch.Tensor,
     grid_probs: torch.Tensor,
@@ -305,6 +384,28 @@ def ensure_candidates_with_noop(
     return [(noop_prob, noop_idx, noop_prob, -1, 0.0)]
 
 
+def dedup_candidates_by_slot(
+    candidates: List[Tuple[float, int, float, int, float]],
+    vocab: ActionVocab,
+    hand_card_ids: List[int] | None,
+    topk: int,
+) -> List[Tuple[float, int, float, int, float]]:
+    seen: set[Tuple[int, str]] = set()
+    deduped: List[Tuple[float, int, float, int, float]] = []
+    for candidate in candidates:
+        action_id = vocab.id_to_action[candidate[1]]
+        card_id = parse_card_id(str(action_id))
+        slot_index = find_slot_index(card_id, hand_card_ids)
+        key = (slot_index, action_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+        if len(deduped) >= topk:
+            break
+    return deduped
+
+
 def render_overlay(
     data_dir: str,
     record: dict,
@@ -312,6 +413,10 @@ def render_overlay(
     gw: int,
     gh: int,
     out_path: str,
+    slot_index: int = -1,
+    hand_y1_ratio: float = 0.90,
+    hand_y2_ratio: float = 0.97,
+    hand_x_margin_ratio: float = 0.03,
 ) -> None:
     out_path_value = out_path
     if out_path:
@@ -335,6 +440,34 @@ def render_overlay(
     sy2 = int(round((cell[3] - roi[1]) * scale_y))
 
     cv2.rectangle(state_img, (sx1, sy1), (sx2, sy2), (0, 255, 0), 2)
+    if slot_index >= 0:
+        try:
+            hand_rect = compute_hand_roi_rect(
+                state_img,
+                y1_ratio=hand_y1_ratio,
+                y2_ratio=hand_y2_ratio,
+                x_margin_ratio=hand_x_margin_ratio,
+            )
+            slot_rects = compute_hand_slot_rects(hand_rect, n_slots=4)
+            if slot_index < len(slot_rects):
+                hx1, hy1, hx2, hy2 = slot_rects[slot_index]
+                color = (0, 165, 255)
+                cv2.rectangle(state_img, (hx1, hy1), (hx2, hy2), color, 3)
+                label = f"SLOT {slot_index + 1}"
+                label_x = max(0, min(state_img.shape[1] - 1, hx1))
+                label_y = max(12, hy1 - 6)
+                cv2.putText(
+                    state_img,
+                    label,
+                    (label_x, label_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    color,
+                    2,
+                    cv2.LINE_AA,
+                )
+        except ValueError:
+            pass
     ok = cv2.imwrite(out_path_value, state_img)
     if not ok:
         raise RuntimeError("failed to write overlay image")
@@ -348,6 +481,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--topk", type=int, default=5)
     parser.add_argument("--render-overlay", action="store_true", help="Write top-1 grid overlay to out.png")
     parser.add_argument("--overlay-out", default="out.png", help="Overlay output path")
+    parser.add_argument(
+        "--dedup-topk-by-slot",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Deduplicate top-k by (slot_index, action_id)",
+    )
+    parser.add_argument(
+        "--enable-elixir-mask",
+        action="store_true",
+        help="Mask card actions with cost > elixir",
+    )
     parser.add_argument("--exclude-noop", action="store_true", help="Exclude __NOOP__ from ranking")
     parser.add_argument("--hand-s-th", type=float, default=30.0, help="Hand mean-S threshold")
     parser.add_argument("--hand-y1-ratio", type=float, default=0.90, help="Hand ROI y1 ratio")
@@ -546,6 +690,8 @@ def main() -> int:
         warn("hand_card_ids missing; card mask will exclude card actions")
     print(f"elixir={elixir} elixir_frac={elixir_frac:.2f}")
     hand_tensor = torch.tensor(hand_available, dtype=torch.float32, device=device).unsqueeze(0)
+    card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
+    elixir_masked_count = 0
 
     if two_frame:
         delta_frames = resolve_delta_frames(record, delta_frames, args.delta_sec)
@@ -569,7 +715,6 @@ def main() -> int:
             pre_mask_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         if not args.disable_hand_card_mask and not hand_mask_auto_skip:
             allowed_card_ids = build_allowed_card_ids(hand_available, hand_card_ids)
-            card_id_to_action_idx = build_card_id_to_action_idx_map(vocab)
             card_logits = apply_action_mask(
                 card_logits,
                 allowed_card_ids,
@@ -583,8 +728,31 @@ def main() -> int:
                 noop_idx,
                 skill_idx,
             )
+        if args.enable_elixir_mask and elixir >= 0:
+            card_logits, elixir_masked_count = apply_elixir_mask(
+                card_logits,
+                elixir,
+                CARD_COSTS,
+                card_id_to_action_idx,
+                noop_idx,
+                skill_idx,
+            )
+            elixir_valid_indices = build_elixir_valid_action_indices(
+                card_id_to_action_idx,
+                elixir,
+                CARD_COSTS,
+                noop_idx,
+                skill_idx,
+            )
+            if valid_action_indices is None:
+                valid_action_indices = elixir_valid_indices
+            else:
+                valid_action_indices = valid_action_indices & elixir_valid_indices
         card_probs = torch.softmax(card_logits, dim=1).squeeze(0)
         grid_probs = torch.softmax(grid_logits, dim=1).squeeze(0)
+
+    if args.enable_elixir_mask and elixir >= 0:
+        print(f"elixir_masked={elixir_masked_count}")
 
     if args.debug_hand_mask and pre_mask_probs is not None:
         for line in format_mask_topk(
@@ -608,11 +776,14 @@ def main() -> int:
         ):
             print(line)
 
+    candidate_pool_k = args.topk
+    if args.dedup_topk_by_slot:
+        candidate_pool_k = max(args.topk * 4, args.topk)
     top_candidates = build_candidates(
         card_probs,
         grid_probs,
         vocab,
-        args.topk,
+        candidate_pool_k,
         args.score_mode,
         args.exclude_noop,
         valid_action_indices=valid_action_indices,
@@ -623,6 +794,13 @@ def main() -> int:
         noop_idx,
         args.disable_hand_card_mask or hand_mask_auto_skip,
     )
+    if args.dedup_topk_by_slot:
+        top_candidates = dedup_candidates_by_slot(
+            top_candidates,
+            vocab,
+            hand_card_ids,
+            args.topk,
+        )
 
     for rank, (score, card_id, card_prob, grid_id, grid_prob) in enumerate(top_candidates, start=1):
         action_id = vocab.id_to_action[card_id]
@@ -644,7 +822,21 @@ def main() -> int:
         if top_candidates:
             top_grid = top_candidates[0][3]
             if top_grid >= 0:
-                render_overlay(args.data_dir, record, top_grid, gw, gh, args.overlay_out)
+                top_action_id = vocab.id_to_action[top_candidates[0][1]]
+                top_card_id = parse_card_id(str(top_action_id))
+                top_slot_index = find_slot_index(top_card_id, hand_card_ids)
+                render_overlay(
+                    args.data_dir,
+                    record,
+                    top_grid,
+                    gw,
+                    gh,
+                    args.overlay_out,
+                    slot_index=top_slot_index,
+                    hand_y1_ratio=args.hand_y1_ratio,
+                    hand_y2_ratio=args.hand_y2_ratio,
+                    hand_x_margin_ratio=args.hand_x_margin_ratio,
+                )
                 print(f"overlay_saved={args.overlay_out}")
             else:
                 print("overlay_skipped=NOOP")

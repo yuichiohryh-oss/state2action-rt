@@ -1,4 +1,8 @@
 import math
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import torch
 
@@ -169,3 +173,25 @@ def test_fallback_to_noop_when_candidates_empty() -> None:
     assert grid_prob == 0.0
     assert math.isclose(score, float(card_probs[noop_idx].item()))
     assert math.isclose(card_prob, float(card_probs[noop_idx].item()))
+
+
+def test_predict_help_includes_new_args() -> None:
+    script_path = Path(__file__).resolve().parents[1] / "tools" / "predict_policy.py"
+    root_dir = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    python_path = os.pathsep.join(
+        [str(root_dir / "src"), str(root_dir), env.get("PYTHONPATH", "")]
+    ).strip(os.pathsep)
+    env["PYTHONPATH"] = python_path
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0
+    stdout = result.stdout
+    assert "--dedup-topk-by-slot" in stdout
+    assert "--no-dedup-topk-by-slot" in stdout
+    assert "--enable-elixir-mask" in stdout
