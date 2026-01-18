@@ -89,8 +89,8 @@ def split_hand_slots(hand_bgr: np.ndarray, n_slots: int = 4) -> List[np.ndarray]
 
 def crop_match_roi(
     slot_bgr: np.ndarray,
-    side_cut_ratio: float = 0.10,
-    bottom_cut_ratio: float = 0.25,
+    side_cut_ratio: float = 0.18,
+    bottom_cut_ratio: float = 0.45,
 ) -> np.ndarray:
     h, w = slot_bgr.shape[:2]
     if h < 1 or w < 1:
