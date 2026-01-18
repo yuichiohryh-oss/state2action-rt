@@ -30,7 +30,7 @@ CNN（将来 Transformer へ拡張可能）
   - action head
   - grid head
    ↓
-Top-k 行動提案（hand_* による action mask を適用）
+Top-k 行動提案（hand_* / elixir による action mask を適用）
 ```
 
 ---
@@ -104,17 +104,17 @@ Top-k 行動提案（hand_* による action mask を適用）
 * 推論された card action が **hand_card_ids に存在**すること
 * 対応する **slot_index（0–3）** を特定
 * 存在しない／available=0 の場合は **実行しない**（安全側）
-* 候補が空なら **NOOP にフォールバック**
+* 候補が空なら **WAIT（NOOP）にフォールバック**
 
 ### スキル行動（1段階）
 
 * スキルボタンを押すだけで即時発動
 * ボタンがグレー／存在しない場合は使用不可
 
-### NOOP（0段階）
+### WAIT / NOOP（0段階）
 
 * 何も操作しない
-* 有効な判断としてログに残す
+* エリクサー不足や手札制約により行動不能な場合の **有効な提案**
 
 ---
 
@@ -129,7 +129,7 @@ Top-k 行動提案（hand_* による action mask を適用）
 
 によって取れる行動は異なる。
 
-→ **hand_* を使った action mask が必須**
+→ **hand_* / elixir を使った action mask が必須**
 
 ### 手札特徴（hand_features）
 
@@ -165,7 +165,7 @@ Top-k 行動提案（hand_* による action mask を適用）
 ```
 
 * 推論時：hand_available + hand_card_ids で card action をマスク
-* 欠損時：**カード行動を除外し NOOP のみ許可**
+* 欠損時：**カード行動を除外し WAIT のみ許可**
 
 ---
 
@@ -199,7 +199,10 @@ Top-k 行動提案（hand_* による action mask を適用）
 ```
 
 * 学習時：数値特徴量として使用（hand_* より優先度は低い）
-* 推論時：現状は **ログ出力のみ**。将来 action mask への利用を検討
+* 推論時：
+
+  * 出せないカードをマスク（--enable-elixir-mask）
+  * 全候補が落ちた場合は **WAIT にフォールバック**
 
 ---
 
@@ -209,9 +212,9 @@ Top-k 行動提案（hand_* による action mask を適用）
 * 出力は Top-k 提案
 * 人間が最終判断
 
-### NOOP の扱い
+### NOOP / WAIT の扱い
 
-* 実データでは NOOP が多くなりがち
+* 実データでは NOOP / WAIT が多くなりがち
 * augment_noop.py で補完
 * loss weight / mask で過多を防止
 
@@ -220,7 +223,7 @@ Top-k 行動提案（hand_* による action mask を適用）
 ## 設計思想
 
 * **入出力 IF を固定**し、内部実装を差し替え可能に
-* 盤面理解（CNN）と制約理解（数値特徴）を分離
+* 盤面理解（CNN）と制約理解（hand / elixir）を分離
 * 完全自動化より、人間との協調を重視
 
 ---
@@ -229,14 +232,17 @@ Top-k 行動提案（hand_* による action mask を適用）
 
 ```
 templates/hand_cards/
-  0_cannon.png
-  1_cannon_evo.png
-  2_fireball.png
-  3_hog.png
-  4_icegolem.png
-  5_ice_spirit.png
-  6_log.png
-  7_musketeer.png
-  8_skeletons.png
-  9_skeletons_evo.png
+  0.png  # cannon
+  1.png  # skeletons
+  2.png  # fireball
+  3.png  # hog
+  4.png  # icegolem
+  5.png  # ice_spirit
+  6.png  # log
+  7.png  # musketeer
 ```
+
+Note:
+
+* 進化カード（evo）は現時点では unknown として扱い、テンプレには含めない
+* 進化判定は将来の独立モジュールとして検討する
