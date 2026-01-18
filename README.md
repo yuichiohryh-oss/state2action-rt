@@ -114,6 +114,11 @@ frame_idx,time_sec,slot,mean_s,available,card_id,score
 `--debug-roi-overlay` を指定すると、
 `frame_*_full_roi_overlay.png` が出力され、ROI の目視確認が可能です。
 
+#### Hand card templates（任意）
+
+`--hand-templates-dir templates/hand_cards` を指定すると、テンプレマッチにより `hand_card_ids` を推定します。
+テンプレは `0.png .. 7.png` の数値ファイル名を推奨します（進化カード等は現状 unknown 扱い）。
+
 ---
 
 ## 学習
@@ -141,18 +146,42 @@ python tools/predict_policy.py \
   --idx 0 \
   --topk 5
 ```
+
 * `--render-overlay` を指定した場合、出力先ディレクトリは自動作成されます。
 
 ### 推論時の挙動
 
 * dataset に含まれる `hand_available / hand_card_ids` を **最優先で使用**
 * `hand_card_ids` が有効（-1 以外が存在）かつ `hand_available` が取得できている場合：
+
   * 手札に存在しない、または available=0 のカード行動は **候補から除外（hand mask）**
-  * 有効なカード行動が 1 つも無い場合は **NOOP にフォールバック**
   * カード行動が選択された場合、対応する **slot_index（0–3）** を出力
+  * `--dedup-topk-by-slot`（デフォルト有効）により、同一スロット由来の候補が上位を埋め尽くさないように Top-k を間引く
 * `hand_card_ids` がすべて -1 など **手札が未知**の場合（安全側）：
+
   * hand mask は **適用せず**、Top-k の提案のみを出力します（`slot_index=-1` になり得ます）
   * 本リポジトリは自動操作を行わないため、この状態でも「提案」は継続します
+
+#### elixir mask（任意）
+
+* `--enable-elixir-mask` を指定すると、`elixir` 推定値を使って **コスト不足のカード行動を候補から除外**します
+* elixir mask により候補が空になる場合は、**WAIT（操作しない）**を提案として扱い、安全側にフォールバックします
+
+### Action suggestion with hand-aware slot highlighting
+
+```bash
+python tools/predict_policy.py \
+  --checkpoint out/train_runs/train_boardonly_single_run1/checkpoints/best.pt \
+  --data-dir /path/to/out \
+  --idx 0 \
+  --topk 5 \
+  --render-overlay \
+  --overlay-out out/overlay_example.png \
+  --hand-templates-dir templates/hand_cards \
+  --hand-card-min-score 0.60
+```
+
+* 提案位置（盤面）と、使用すべき手札スロットが overlay で可視化されます（SLOT n を強調表示）
 
 ---
 
