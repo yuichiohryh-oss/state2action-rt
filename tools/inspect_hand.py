@@ -1,3 +1,11 @@
+"""Inspect hand slots by HSV saturation and template matching.
+
+Updates:
+- Expose hand ROI y1/y2 ratios via CLI.
+- Dump full-frame overlays, slot ROIs, and match ROIs for debugging.
+- Pixel ROI overrides ratios/margins when all four coordinates are provided.
+"""
+
 import argparse
 import csv
 import os
@@ -64,7 +72,11 @@ def draw_text(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect hand slots by HSV saturation and template matching."
+        description="Inspect hand slots by HSV saturation and template matching.",
+        epilog=(
+            "Example (720x1604 screenshot): --hand-roi-x1 150 --hand-roi-x2 710 "
+            "--hand-roi-y1 1360 --hand-roi-y2 1604"
+        ),
     )
     parser.add_argument("--video", required=True, help="Path to video file")
     parser.add_argument("--out-dir", default="out/hand_debug", help="Output directory")
@@ -92,6 +104,18 @@ def main() -> int:
         type=float,
         default=0.03,
         help="Horizontal margin ratio to trim both sides",
+    )
+    parser.add_argument(
+        "--hand-y1-ratio",
+        type=float,
+        default=0.90,
+        help="Hand ROI y1 ratio (ignored when pixel override is set)",
+    )
+    parser.add_argument(
+        "--hand-y2-ratio",
+        type=float,
+        default=0.97,
+        help="Hand ROI y2 ratio (ignored when pixel override is set)",
     )
     parser.add_argument("--s-th", type=float, default=30.0, help="Saturation threshold")
     parser.add_argument(
@@ -121,10 +145,30 @@ def main() -> int:
         action="store_true",
         help="Save full-frame ROI overlay with hand/slot boxes",
     )
-    parser.add_argument("--hand-roi-x1", type=int, default=None, help="Hand ROI x1 in pixels")
-    parser.add_argument("--hand-roi-x2", type=int, default=None, help="Hand ROI x2 in pixels")
-    parser.add_argument("--hand-roi-y1", type=int, default=None, help="Hand ROI y1 in pixels")
-    parser.add_argument("--hand-roi-y2", type=int, default=None, help="Hand ROI y2 in pixels")
+    parser.add_argument(
+        "--hand-roi-x1",
+        type=int,
+        default=None,
+        help="Hand ROI x1 in pixels (overrides ratios when all four are set)",
+    )
+    parser.add_argument(
+        "--hand-roi-x2",
+        type=int,
+        default=None,
+        help="Hand ROI x2 in pixels (overrides ratios when all four are set)",
+    )
+    parser.add_argument(
+        "--hand-roi-y1",
+        type=int,
+        default=None,
+        help="Hand ROI y1 in pixels (overrides ratios when all four are set)",
+    )
+    parser.add_argument(
+        "--hand-roi-y2",
+        type=int,
+        default=None,
+        help="Hand ROI y2 in pixels (overrides ratios when all four are set)",
+    )
     parser.add_argument(
         "--write-csv",
         action=argparse.BooleanOptionalAction,
@@ -188,8 +232,8 @@ def main() -> int:
             try:
                 hand_x1, hand_y1, hand_x2, hand_y2 = compute_hand_roi_rect(
                     frame,
-                    y1_ratio=0.90,
-                    y2_ratio=0.97,
+                    y1_ratio=args.hand_y1_ratio,
+                    y2_ratio=args.hand_y2_ratio,
                     x_margin_ratio=args.x_margin_ratio,
                     hand_roi_pixels=hand_roi_pixels,
                 )
@@ -202,8 +246,8 @@ def main() -> int:
                 templates=templates,
                 s_th=args.s_th,
                 min_score=args.hand_card_min_score,
-                y1_ratio=0.90,
-                y2_ratio=0.97,
+                y1_ratio=args.hand_y1_ratio,
+                y2_ratio=args.hand_y2_ratio,
                 x_margin_ratio=args.x_margin_ratio,
                 n_slots=4,
                 template_size=args.hand_template_size,
@@ -211,12 +255,14 @@ def main() -> int:
             )
             hand_bgr = state["hand_roi"]
             slots = state["slot_rois"]
+            match_rois = state["match_rois"]
             mean_s_list = state["mean_s"]
             available_list = state["available"]
             card_ids = state["card_ids"]
             scores = state["scores"]
 
-            hand_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_hand.png")
+            prefix = os.path.join(args.out_dir, f"frame_{frame_idx:06d}")
+            hand_path = f"{prefix}_hand.png"
             cv2.imwrite(hand_path, hand_bgr)
             overlay = hand_bgr.copy()
             full_overlay = frame.copy() if args.debug_roi_overlay else None
@@ -230,8 +276,11 @@ def main() -> int:
                     2,
                 )
             for i, slot in enumerate(slots):
-                slot_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_slot{i}.png")
+                slot_path = f"{prefix}_slot{i}.png"
                 cv2.imwrite(slot_path, slot)
+                match_roi = match_rois[i]
+                match_path = f"{prefix}_match{i}.png"
+                cv2.imwrite(match_path, match_roi)
                 mean_s = mean_s_list[i]
                 available = bool(available_list[i])
                 card_id = card_ids[i]
@@ -279,17 +328,13 @@ def main() -> int:
                         ]
                     )
             if args.save_full:
-                full_path = os.path.join(args.out_dir, f"frame_{frame_idx:06d}_full.png")
+                full_path = f"{prefix}_full.png"
                 cv2.imwrite(full_path, frame)
             if full_overlay is not None:
-                full_overlay_path = os.path.join(
-                    args.out_dir, f"frame_{frame_idx:06d}_full_roi_overlay.png"
-                )
+                full_overlay_path = f"{prefix}_full_overlay.png"
                 cv2.imwrite(full_overlay_path, full_overlay)
 
-            overlay_path = os.path.join(
-                args.out_dir, f"frame_{frame_idx:06d}_hand_overlay.png"
-            )
+            overlay_path = f"{prefix}_hand_overlay.png"
             cv2.imwrite(overlay_path, overlay)
 
             processed += 1
